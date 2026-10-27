@@ -45,4 +45,34 @@ public sealed class ConcurrencyAndParserTests
         Assert.True(queue.TryDequeue(out string? item4));
         Assert.Equal("P0-3", item4);
     }
+
+    [Fact]
+    public void PriorityJobQueue_TryDequeueHighPriority_SelectsOnlyHighPriority()
+    {
+        PriorityJobQueue<string> queue = new();
+
+        queue.Enqueue("P3-Item", JobPriority.P3);
+        queue.Enqueue("P2-Item", JobPriority.P2);
+        queue.Enqueue("P1-Item", JobPriority.P1);
+        queue.Enqueue("P0-Item", JobPriority.P0);
+
+        Assert.True(queue.HasHighPriorityJobs);
+        Assert.True(queue.TryDequeueHighPriority(out string? first));
+        Assert.Equal("P0-Item", first);
+
+        Assert.True(queue.HasHighPriorityJobs);
+        Assert.True(queue.TryDequeueHighPriority(out string? second));
+        Assert.Equal("P1-Item", second);
+
+        // No more high priority jobs (only P2 and P3 remain)
+        Assert.False(queue.HasHighPriorityJobs);
+        Assert.False(queue.TryDequeueHighPriority(out string? third));
+        Assert.Null(third);
+
+        // Standard dequeue retrieves P2 and P3
+        Assert.True(queue.TryDequeue(out string? fourth));
+        Assert.Equal("P2-Item", fourth);
+        Assert.True(queue.TryDequeue(out string? fifth));
+        Assert.Equal("P3-Item", fifth);
+    }
 }

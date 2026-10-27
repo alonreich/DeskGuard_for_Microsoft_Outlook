@@ -393,9 +393,14 @@ public static partial class OutlookItemAccessor
                             att.SaveAsFile(tempFile);
                             if (File.Exists(tempFile))
                             {
-                                byte[] fileBytes = File.ReadAllBytes(tempFile);
-                                sha256 = Convert.ToHexStringLower(SHA256.HashData(fileBytes));
-                                md5 = Convert.ToHexStringLower(MD5.HashData(fileBytes));
+                                using (FileStream fs = File.OpenRead(tempFile))
+                                {
+                                    sha256 = Convert.ToHexStringLower(SHA256.HashData(fs));
+                                }
+                                using (FileStream fs = File.OpenRead(tempFile))
+                                {
+                                    md5 = Convert.ToHexStringLower(MD5.HashData(fs));
+                                }
                             }
                         }
                         catch { }

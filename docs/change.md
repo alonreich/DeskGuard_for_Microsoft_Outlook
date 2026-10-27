@@ -1,15 +1,29 @@
-# DeskGuard for Microsoft Outlook - Changelog & Change Staging
+﻿# DeskGuard for Microsoft Outlook - Changelog & Change Staging
 
 All notable changes to DeskGuard are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 > **CRITICAL RULE FOR AI AGENTS & CONTRIBUTORS:**
-> Every proposed or executed change MUST be staged under `## [Unreleased]` below.
+> Every proposed or executed change MUST be staged under `## [Unreleased]
+
+### Added
+- None.
+
+### Changed
+- None.
+
+### Fixed
+- None.
+
+---
+
+## [1.0.3] - 2026-10-27
+
+` below.
 > When a new public build is triggered (`Build.cmd`), this section is promoted to the
 > new version header with a timestamp. AI agents must NEVER complete a task without
 > updating this file.
-
 ---
 
 ## [Unreleased]
@@ -23,6 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - None.
 
+---
+
+## [1.0.3] - 2026-10-27
+
+` below.
+> When a new public build is triggered (`Build.cmd`), this section is promoted to the
+> new version header with a timestamp. AI agents must NEVER complete a task without
+> updating this file.
 ---
 
 ## [1.0.2] - 2026-10-27

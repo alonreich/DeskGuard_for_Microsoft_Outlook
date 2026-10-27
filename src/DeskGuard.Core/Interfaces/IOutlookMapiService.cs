@@ -48,7 +48,7 @@ public interface IOutlookMapiService : IDisposable
 
     Task<bool> StartLiveWatcherAsync(CancellationToken cancellationToken);
     Task StopLiveWatcherAsync();
-    Task ResetConnectionAsync();
+    Task ResetConnectionAsync(CancellationToken cancellationToken = default);
 
     Task RunSweepAsync(DateTime sinceUtc, CancellationToken cancellationToken);
     Task RunCrawlerAsync(CancellationToken cancellationToken);

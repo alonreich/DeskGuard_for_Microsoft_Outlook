@@ -60,10 +60,11 @@ DeskGuard_for_Microsoft_Outlook/
 |   |-- DevSandbox.ps1               # Isolated developer test sandbox
 |   |-- installer/DeskGuard.iss      # Inno Setup 6 packaging configuration script
 |   `-- DeskGuard.Build/             # .NET 9 CLI orchestrator for builds & releases
-|       |-- Program.cs               # Build runner (test -> publish -> hash -> installer)
+|       |-- Program.cs               # Build runner (test -> publish -> hash -> installer -> git release)
 |       |-- Cli.cs                   # Streaming subprocess execution helper
 |       |-- BuildLog.cs              # Dual console/file build logger
 |       |-- Staging.cs               # Standalone publish & manifest generator
+|       |-- GitRelease.cs            # Automated git commit, tag, push & GitHub release via gh CLI
 |       `-- InnoInstaller.cs         # Inno Setup compiler (ISCC.exe) wrapper
 |
 |-- docs/                            # Modular domain documentation (see router above)

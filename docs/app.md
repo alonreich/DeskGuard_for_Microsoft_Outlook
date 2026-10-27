@@ -17,6 +17,7 @@ src/DeskGuard.App/
 |-- Program.cs                  # [Entrypoint] AttachConsole, mutex check, service wiring, loop
 |-- DashboardWindow.cs          # Form hosting WebView2 control, IPC message router
 |-- TrayIconController.cs       # WinForms NotifyIcon, context menu, notifications, icon states
+|-- Win32SynchronizationContext.cs # Custom SynchronizationContext dispatching to Win32 message loop
 |-- DeploymentLifecycle.cs      # CLI flag handling (--install, --uninstall, --first-run)
 |-- DeploymentFootprint.cs      # User data directory paths (%LocalAppData%\DeskGuard)
 |-- StartupManager.cs           # Registry run-key management for auto-launch on Windows login
@@ -63,6 +64,8 @@ Backend pushes real-time telemetry via `DashboardWindow.PostEvent(eventName, dat
 ---
 
 ## 4. COM Threading & Message Pump Notes
+- The process explicitly invokes `OleInitialize` at entry point (`Program.Main`) to guarantee STA apartment mode before any Windows Shell or COM APIs are invoked, avoiding `RPC_E_CHANGED_MODE` (`0x80010106`).
 - The WebView2 control strictly requires an STA thread with an active Windows message pump during initialization (`WaitForTaskWithPump`) and message handling.
+- `Win32SynchronizationContext` marshals asynchronous IPC continuations back to the UI thread via `WM_APP_DISPATCH` (`WM_USER + 102`) to guarantee thread affinity for `PostWebMessageAsJson`.
 - `DashboardWindow` runs on the application's primary STA thread.
-- Long-running MAPI scans or cloud threat lookups are never invoked directly on the UI thread; they are dispatched to background tasks or the `OutlookStaCoordinator`.
+- Long-running MAPI scans or cloud threat lookups are never invoked directly on the UI thread; they are dispatched to background tasks or the `OutlookStaCoordinator`. Database queries in IPC handlers are offloaded via `Task.Run`.

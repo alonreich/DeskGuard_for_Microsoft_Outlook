@@ -27,6 +27,10 @@ internal sealed partial class TrayIconController : IDisposable
     public const uint WM_USER = 0x0400;
     public const uint WM_TRAY_CALLBACK = WM_USER + 100;
     public const uint WM_TRAY_SHOW_STATUS = WM_USER + 101;
+    public const uint WM_APP_DISPATCH = WM_USER + 102;
+
+    private Win32SynchronizationContext? _syncContext;
+    public Win32SynchronizationContext? SyncContext => _syncContext;
 
     private const uint WM_CREATE = 0x0001;
     private const uint WM_DESTROY = 0x0002;
@@ -282,6 +286,11 @@ internal sealed partial class TrayIconController : IDisposable
             int createErr = Marshal.GetLastPInvokeError();
             Console.WriteLine($"[Tray] CreateWindowExW failed: {createErr}");
         }
+        else
+        {
+            _syncContext = new Win32SynchronizationContext(_hwnd, WM_APP_DISPATCH);
+            SynchronizationContext.SetSynchronizationContext(_syncContext);
+        }
 
         AddTrayIcon();
     }
@@ -408,6 +417,11 @@ internal sealed partial class TrayIconController : IDisposable
                 _instance.WatchdogTick?.Invoke();
                 return IntPtr.Zero;
             }
+            else if (msg == WM_APP_DISPATCH)
+            {
+                _instance._syncContext?.DrainQueue();
+                return IntPtr.Zero;
+            }
         }
 
         return DefWindowProcW(hWnd, msg, wParam, lParam);
@@ -510,6 +524,7 @@ internal sealed partial class TrayIconController : IDisposable
             if (msg.message == WM_QUIT) break;
             TranslateMessage(ref msg);
             DispatchMessageW(ref msg);
+            _syncContext?.DrainQueue();
         }
     }
 
@@ -529,10 +544,16 @@ internal sealed partial class TrayIconController : IDisposable
             TranslateMessage(ref msg);
             DispatchMessageW(ref msg);
         }
+        _syncContext?.DrainQueue();
     }
 
     public unsafe void Dispose()
     {
+        if (SynchronizationContext.Current == _syncContext)
+        {
+            SynchronizationContext.SetSynchronizationContext(null);
+        }
+        _syncContext?.DrainQueue();
         if (_timerId != UIntPtr.Zero && _hwnd != IntPtr.Zero)
         {
             KillTimer(_hwnd, _timerId);

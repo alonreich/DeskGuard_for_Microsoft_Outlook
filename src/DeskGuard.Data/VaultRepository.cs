@@ -860,7 +860,7 @@ public sealed partial class VaultRepository : IVaultRepository
         return stats;
     }
 
-    public Dictionary<string, List<EmailRecord>> GetAllCategorizedEmails(int limitPerCat = 2000)
+    public Dictionary<string, List<EmailRecord>> GetAllCategorizedEmails(int limitPerCat = 100)
     {
         EnsureReady();
         Dictionary<string, List<EmailRecord>> result = new(StringComparer.OrdinalIgnoreCase)

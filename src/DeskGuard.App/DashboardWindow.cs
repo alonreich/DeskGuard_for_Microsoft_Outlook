@@ -31,6 +31,7 @@ internal sealed partial class DashboardWindow : IDisposable
 
     private CoreWebView2Controller? _controller;
     private CoreWebView2? _coreWebView;
+    private readonly SynchronizationContext? _uiSyncContext;
     private bool _isInitialized;
 
     public const string WindowClassName = "DeskGuard_Dashboard_WindowClass";
@@ -184,6 +185,7 @@ internal sealed partial class DashboardWindow : IDisposable
     public DashboardWindow(VaultRepository vault, OutlookMapiService mapiService, ScanConfiguration config)
     {
         _instance = this;
+        _uiSyncContext = SynchronizationContext.Current;
         _vault = vault;
         _mapiService = mapiService;
         _config = config;
@@ -254,7 +256,7 @@ internal sealed partial class DashboardWindow : IDisposable
 
         try
         {
-            Log($"Starting WebView2 initialization. BaseDir={AppContext.BaseDirectory}");
+            Log($"Starting WebView2 initialization. BaseDir={AppContext.BaseDirectory}, UserDataFolder={userDataFolder}, Apartment={Thread.CurrentThread.GetApartmentState()}, SyncContext={_uiSyncContext?.GetType().Name ?? "null"}");
 
             try
             {
@@ -346,6 +348,12 @@ internal sealed partial class DashboardWindow : IDisposable
     public void PostEvent(string channel, object data)
     {
         if (_coreWebView == null) return;
+        if (_uiSyncContext != null && SynchronizationContext.Current != _uiSyncContext)
+        {
+            _uiSyncContext.Post(_ => PostEvent(channel, data), null);
+            return;
+        }
+
         try
         {
             JsonObject evt = new()
@@ -355,6 +363,29 @@ internal sealed partial class DashboardWindow : IDisposable
                 ["data"] = JsonSerializer.SerializeToNode(data)
             };
             _coreWebView.PostWebMessageAsJson(evt.ToJsonString());
+        }
+        catch { }
+    }
+
+    private void PostWebMessageResponse(long id, object? result, string? error)
+    {
+        if (_coreWebView == null) return;
+        if (_uiSyncContext != null && SynchronizationContext.Current != _uiSyncContext)
+        {
+            _uiSyncContext.Post(_ => PostWebMessageResponse(id, result, error), null);
+            return;
+        }
+
+        try
+        {
+            JsonObject resp = new()
+            {
+                ["type"] = "response",
+                ["id"] = id,
+                ["result"] = result != null ? JsonSerializer.SerializeToNode(result) : null,
+                ["error"] = error
+            };
+            _coreWebView.PostWebMessageAsJson(resp.ToJsonString());
         }
         catch { }
     }
@@ -383,16 +414,9 @@ internal sealed partial class DashboardWindow : IDisposable
                 error = ex.Message;
             }
 
-            if (id > 0 && _coreWebView != null)
+            if (id > 0)
             {
-                JsonObject resp = new()
-                {
-                    ["type"] = "response",
-                    ["id"] = id,
-                    ["result"] = result != null ? JsonSerializer.SerializeToNode(result) : null,
-                    ["error"] = error
-                };
-                _coreWebView.PostWebMessageAsJson(resp.ToJsonString());
+                PostWebMessageResponse(id, result, error);
             }
         }
         catch { }
@@ -422,27 +446,30 @@ internal sealed partial class DashboardWindow : IDisposable
                 return new { ok = true };
 
             case "get-stats":
-                var statsDict = _vault.GetAllCategorizedEmails(2000);
-                var engineStats = _vault.GetStats();
-                return new
+                return await Task.Run(() =>
                 {
-                    full = true,
-                    stats = new
+                    var statsDict = _vault.GetAllCategorizedEmails(100);
+                    var engineStats = _vault.GetStats();
+                    return (object)new
                     {
-                        malicious = statsDict.GetValueOrDefault("malicious", []),
-                        suspicious = statsDict.GetValueOrDefault("suspicious", []),
-                        spam = statsDict.GetValueOrDefault("spam", []),
-                        safe = statsDict.GetValueOrDefault("safe", [])
-                    },
-                    counts = new
-                    {
-                        total = engineStats.Total,
-                        malicious = engineStats.Malicious,
-                        suspicious = engineStats.Suspicious,
-                        spam = engineStats.Spam,
-                        safe = engineStats.Safe
-                    }
-                };
+                        full = true,
+                        stats = new
+                        {
+                            malicious = statsDict.GetValueOrDefault("malicious", []),
+                            suspicious = statsDict.GetValueOrDefault("suspicious", []),
+                            spam = statsDict.GetValueOrDefault("spam", []),
+                            safe = statsDict.GetValueOrDefault("safe", [])
+                        },
+                        counts = new
+                        {
+                            total = engineStats.Total,
+                            malicious = engineStats.Malicious,
+                            suspicious = engineStats.Suspicious,
+                            spam = engineStats.Spam,
+                            safe = engineStats.Safe
+                        }
+                    };
+                });
 
             case "get-config":
                 return _config;
@@ -560,20 +587,23 @@ internal sealed partial class DashboardWindow : IDisposable
                 int limit = payload.TryGetProperty("limit", out var lp) ? lp.GetInt32() : 50;
                 int offset = payload.TryGetProperty("offset", out var op) ? op.GetInt32() : 0;
                 string? folderFilter = payload.TryGetProperty("folder", out var fp) ? fp.GetString() : null;
-                var searchRes = _vault.SearchEmails(new SearchParameters
+                return await Task.Run(() =>
                 {
-                    Query = q,
-                    Limit = limit,
-                    Offset = offset,
-                    Folder = folderFilter ?? string.Empty,
-                    SortBy = "date",
-                    SortOrder = "desc"
+                    var searchRes = _vault.SearchEmails(new SearchParameters
+                    {
+                        Query = q,
+                        Limit = limit,
+                        Offset = offset,
+                        Folder = folderFilter ?? string.Empty,
+                        SortBy = "date",
+                        SortOrder = "desc"
+                    });
+                    return (object)new { items = searchRes.Rows, total = searchRes.Total };
                 });
-                return new { items = searchRes.Rows, total = searchRes.Total };
 
             case "get-sender-suggestions":
                 string prefix = payload.GetString() ?? string.Empty;
-                return _vault.GetSenderSuggestions(prefix, 10);
+                return await Task.Run(() => (object)_vault.GetSenderSuggestions(prefix, 10));
 
             case "scan-duplicates":
                 var dupRes = await _mapiService.ScanDuplicatesAsync(_cts.Token);
@@ -581,8 +611,11 @@ internal sealed partial class DashboardWindow : IDisposable
                 return new { items = dupRes.Items, count = dupRes.ScannedCount };
 
             case "get-saved-duplicates":
-                var savedDups = _vault.GetSavedDuplicates();
-                return new { items = savedDups.Items, status = savedDups.Status, savedAt = savedDups.SavedAt };
+                return await Task.Run(() =>
+                {
+                    var savedDups = _vault.GetSavedDuplicates();
+                    return (object)new { items = savedDups.Items, status = savedDups.Status, savedAt = savedDups.SavedAt };
+                });
 
             case "delete-duplicates":
                 string dupMode = payload.TryGetProperty("mode", out var mProp) ? mProp.GetString() ?? "safe" : "safe";
@@ -596,26 +629,29 @@ internal sealed partial class DashboardWindow : IDisposable
 
             case "get-events":
                 int evLimit = payload.TryGetProperty("limit", out var elp) ? elp.GetInt32() : 100;
-                return _vault.GetEvents(evLimit);
+                return await Task.Run(() => (object)_vault.GetEvents(evLimit));
 
             case "get-forensics":
                 string forId = payload.GetString() ?? string.Empty;
-                var emailRec = _vault.GetEmailById(forId);
-                if (emailRec != null)
+                return await Task.Run(() =>
                 {
-                    return new
+                    var emailRec = _vault.GetEmailById(forId);
+                    if (emailRec != null)
                     {
-                        subject = emailRec.Subject,
-                        sender = emailRec.Sender,
-                        recipient = emailRec.Recipient,
-                        date = emailRec.Date,
-                        score = emailRec.Score,
-                        verdict = emailRec.Verdict,
-                        body = emailRec.Body,
-                        penalties = emailRec.PenaltiesJson
-                    };
-                }
-                return new { };
+                        return (object)new
+                        {
+                            subject = emailRec.Subject,
+                            sender = emailRec.Sender,
+                            recipient = emailRec.Recipient,
+                            date = emailRec.Date,
+                            score = emailRec.Score,
+                            verdict = emailRec.Verdict,
+                            body = emailRec.Body,
+                            penalties = emailRec.PenaltiesJson
+                        };
+                    }
+                    return (object)new { };
+                });
 
             case "score-what-if":
                 return new { score = 85.0, verdict = "Clean" };

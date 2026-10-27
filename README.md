@@ -1,93 +1,50 @@
 # DeskGuard for Microsoft Outlook
 
+**Automated real-time security sentinel and mailbox cleanup for Microsoft Outlook desktop.**
+
+---
+
+## 📥 Download Latest Release
+
 <div align="center">
 
-![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?style=flat-square&logo=windows)
-![.NET 9](https://img.shields.io/badge/.NET-9.0%20Standalone-512BD4?style=flat-square&logo=dotnet)
-![C# 13](https://img.shields.io/badge/C%23-13.0-239120?style=flat-square&logo=csharp)
-![Client](https://img.shields.io/badge/Outlook-2016%20%7C%202019%20%7C%202021%20%7C%20365-0078D4?style=flat-square&logo=microsoftoutlook)
-![Storage](https://img.shields.io/badge/Storage-SQLite%20(WAL)-003B57?style=flat-square&logo=sqlite)
+# 👉 [**Click Here to Download DeskGuard.exe (Windows 64-bit)**](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe) 👈
 
-**High-performance, zero-runtime sentinel & intelligent mailbox deduplicator for Microsoft Outlook desktop.**
-
-<p align="center">
-  <a href="https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe">
-    <img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F%20Direct%20Download-DeskGuard.exe%20(Latest%20Installer)-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download Latest Release" />
-  </a>
-</p>
-
-[📥 Download Latest Installer](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe) • [All Releases](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases) • [Features](#-key-capabilities) • [Quick Start](#-quick-start) • [Developer Commands](#-developer-commands) • [What's New](docs/change.md)
+**[📦 Direct Download Link (DeskGuard.exe)](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe)** &nbsp;&bull;&nbsp; **[📋 View Latest Release Page](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest)** &nbsp;&bull;&nbsp; **[📁 All Releases](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases)**
 
 </div>
 
----
-
-## ⚡ What is DeskGuard?
-
-**DeskGuard** is an ultra-lightweight Windows desktop companion that lives in your system tray. It attaches directly to Microsoft Outlook via native MAPI COM interop, intercepting threats, decoding phishing links, and eliminating duplicate emails before they clutter your workflow.
-
-Compiled as a **standalone self-contained single-file executable**, DeskGuard starts instantly, requires **no installed .NET runtime**, and runs with a minuscule memory footprint.
+> **Quick 3-Step Setup:**
+> 1. Click the download link above to get **`DeskGuard.exe`**.
+> 2. Run the installer (takes ~5 seconds, zero prerequisites, no .NET runtime installation required).
+> 3. DeskGuard starts in your Windows system tray and immediately protects Outlook.
 
 ---
 
-## 🛡️ Key Capabilities
-
-| Feature | Description |
-|---|---|
-| **🛡️ Real-Time Inbox Sentinel** | Hooks Outlook's live incoming message stream via an isolated STA message pump without slowing down Outlook. |
-| **🧠 Multi-Vector Threat Scoring** | Scores every email for urgency triggers, homograph spoofing, cousin domains, and dangerous attachment types. |
-| **🔗 SafeLinks Unwrapper** | Unwraps Microsoft Defender SafeLinks to inspect and evaluate actual destination URLs behind redirectors. |
-| **🌐 Zero-API Threat Intel** | Fast Level 1 DNS malware hash lookups via Team Cymru Malware Hash DB, with optional VirusTotal v3 integration. |
-| **🧹 Smart Deduplication** | Fingerprints emails across folders to safely identify and declutter identical copies in one click. |
-| **💻 Modern Embedded UI** | Sleek dark-mode dashboard powered by Microsoft Edge WebView2 with real-time telemetry and forensics. |
+### 💻 Compatibility
+- **Operating System:** Windows 10 & Windows 11 (64-bit)
+- **Microsoft Outlook:** Outlook 2016, 2019, 2021, and Office 365 (Desktop)
+- **Standalone:** Single-file installer with zero runtime dependencies.
 
 ---
 
-## 🚀 Quick Start
+## 🛡️ Key Features
 
-### For Users
-1. Download **[DeskGuard.exe (Direct Download)](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe)** (or view all versions on [GitHub Releases](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases)).
-2. Run `DeskGuard.exe` to install.
-3. DeskGuard starts automatically in your system tray and safeguards your Outlook inbox.
-
-### For Developers
-```cmd
-:: 1. Clone repository
-git clone https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook.git
-cd DeskGuard_for_Microsoft_Outlook
-
-:: 2. Launch live development sandbox
-dev.cmd
-
-:: 3. Build production standalone installer
-Build.cmd
-```
+- **🛡️ Real-Time Phishing & Threat Sentinel:** Monitors incoming emails for malicious senders, suspicious urgencies, and dangerous attachment types without slowing down Outlook.
+- **🔗 SafeLinks Decoder:** Inspects the actual destination URL behind Microsoft Defender SafeLinks before you click.
+- **🧹 Smart Mailbox Deduplication:** Detects duplicate emails across folders and safely cleans redundant copies in one click.
+- **🌐 Zero-API Threat Intelligence:** Fast DNS-based malware hash verification (Team Cymru) with optional VirusTotal API integration.
+- **💻 Modern Embedded UI:** Lightweight, dark-mode dashboard with live forensics and mailbox stats.
 
 ---
 
-## 🛠️ Developer Commands
+## 🛠️ For Developers & Contributors
 
-| Script | Purpose |
-|---|---|
-| `dev.cmd` | Launches the developer runner with live console logging. |
-| `dev_build.cmd` | Fast incremental dev build without wiping compiled outputs. |
-| `Build.cmd` | Full production build: executes unit tests, publishes standalone single-file, and Inno Setup installer packaging (`compiled\DeskGuard.exe`). |
-
----
-
-## 📚 Documentation & AI Agents
-
-DeskGuard uses a **token-saving documentation architecture**:
-- **Entry Point / Docs Router**: [`project_structure.txt`](project_structure.txt)
-- **Changelog & Staged Changes**: [`docs/change.md`](docs/change.md)
-- **Architecture Overview**: [`docs/architecture.md`](docs/architecture.md)
-- **Host & Modern UI**: [`docs/app.md`](docs/app.md)
-- **Threat Scoring & Heuristics**: [`docs/core.md`](docs/core.md)
-- **Outlook MAPI Interop & STA**: [`docs/interop.md`](docs/interop.md)
-- **SQLite Persistence & Deduplication**: [`docs/data.md`](docs/data.md)
-- **Build Pipeline**: [`docs/build-pipeline.md`](docs/build-pipeline.md)
-
-> **AI Contributor Rule**: All code changes must be staged in [`docs/change.md`](docs/change.md) under `## [Unreleased]`. Never modify code without keeping documentation in sync.
+- **Production Build & Git Release:** Run `Build.cmd` to run tests, compile the standalone executable, package with Inno Setup, and automatically publish the release to git and GitHub.
+- **Local Dev Sandbox:** Run `dev.cmd` to launch DeskGuard with interactive console diagnostics.
+- **Fast Local Build:** Run `dev_build.cmd` to compile locally without publishing.
+- **Documentation:** See [`project_structure.txt`](project_structure.txt) and [`docs/`](docs/).
+- **Changelog:** See [`docs/change.md`](docs/change.md) for version history.
 
 ---
 

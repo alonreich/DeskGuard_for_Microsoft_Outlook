@@ -49,13 +49,15 @@ Outlook uses an OLE Single-Threaded Apartment (STA). If a COM interface pointer 
 
 ### Best Practices for AI Agents:
 - Never call Outlook COM objects directly from an async continuation or UI event handler.
-- Always use `_coordinator.EnqueueAsync(...)` or call through `OutlookMapiService`.
-- Wrap every COM object in `using ComRef<T>` or ensure explicit `Marshal.ReleaseComObject` in `finally` blocks.
+- Always use `_coordinator.EnqueueAsync(...)` or call through `OutlookMapiService`, passing caller `CancellationToken`.
+- Background batch scans (crawler, sweeps, deduplication) must periodically call `_coordinator.YieldIfHighPriority(ct)` to allow P0/P1 user operations and live email alerts to preempt long-running loops.
+- Wrap temporary COM objects in `using ComRef<T>` or ensure explicit `Marshal.ReleaseComObject` in `finally` blocks, but never invoke `FinalReleaseComObject` on event sink arguments (e.g. `ItemAdd` parameters).
 
 ---
 
 ## 4. Real-Time Inbox Watching (`OutlookLiveWatcher.cs`)
 - Connects to Outlook's `GetDefaultFolder(olFolderInbox)`.
-- Subscribes to the `Items.ItemAdd` event.
+- Retains parent `MAPIFolder` references in `_watchedFolders` for the entire watcher lifetime to anchor the COM event sinks and prevent GC or table detachment.
+- Subscribes to the `Items.ItemAdd` event without releasing the incoming event COM argument.
 - When fired, checks if the item is a `MailItem`, extracts its `EntryID` and headers, and triggers asynchronous heuristic scoring without blocking Outlook's message handling.
 - Gracefully handles Outlook restarts: if the `OUTLOOK.EXE` process exits, the watcher detects disconnection and automatically re-binds when Outlook restarts.

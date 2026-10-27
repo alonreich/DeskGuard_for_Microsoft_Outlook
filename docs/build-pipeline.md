@@ -24,9 +24,10 @@ build/
 |-- installer/
 |   `-- DeskGuard.iss                # Inno Setup 6 installation script
 `-- DeskGuard.Build/                 # .NET 9 build utility project
-    |-- Program.cs                   # Master build loop (tests -> publish -> manifest -> Inno)
+    |-- Program.cs                   # Master build loop (tests -> publish -> manifest -> Inno -> git release)
     |-- Staging.cs                   # Standalone publish invocation & manifest indexing
     |-- InnoInstaller.cs             # Inno Setup compiler (ISCC.exe) runner
+    |-- GitRelease.cs                # Automated git commit, tag, push & GitHub release via gh CLI
     |-- BuildLog.cs                  # Dual file/console synchronized logger
     `-- Cli.cs                       # Process execution wrapper with streaming stdout/stderr
 ```
@@ -46,15 +47,13 @@ When running `.\Build.cmd`:
 5. **Inno Setup Compilation**: Runs `ISCC.exe` with `DeskGuard.iss` to produce the single-file installer:
    - **Output**: `compiled\DeskGuard.exe` (~5.8 MB)
 6. **Artifact Cleanup**: Automatically removes temporary staging directories, leaving only the verified installer in `compiled\`.
+7. **Automated Git & GitHub Release**: Automatically promotes `## [Unreleased]` in `docs/change.md` to the new version header, creates an annotated git tag (`v<version>`), pushes to `origin main` and the tag, and creates/updates the public release on GitHub with `compiled\DeskGuard.exe` as the release asset using GitHub CLI (`gh release create --latest`).
 
 ---
 
 ## 5. Public Release & Staging Workflow (For AI Agents & Maintainers)
 
-Before running `.\Build.cmd` to publish a new release:
 1. Ensure all code changes are staged in `docs/change.md` under `## [Unreleased]`.
 2. Verify module documentation is up to date in `docs/*.md`.
-3. Promote `## [Unreleased]` in `docs/change.md` to `## [<version>] - <date>`.
-4. Run `.\Build.cmd`.
-5. Verify test pass and successful creation of `compiled\DeskGuard.exe`.
-6. Commit changes to Git with release message.
+3. Run `.\Build.cmd`. It automatically tests, compiles, packages the installer, promotes the changelog, and publishes the release to Git and GitHub.
+4. The direct download URL (`https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe`) immediately serves the latest published installer.

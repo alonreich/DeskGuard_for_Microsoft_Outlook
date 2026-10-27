@@ -61,6 +61,25 @@ public sealed class PriorityJobQueue<T>
         }
     }
 
+    public bool TryDequeueHighPriority(out T item)
+    {
+        lock (_syncRoot)
+        {
+            for (int p = 0; p <= (int)JobPriority.P1; p++)
+            {
+                if (_queues[p].Count > 0)
+                {
+                    _consecutiveHighPriorityRuns++;
+                    item = _queues[p].Dequeue();
+                    _ = _signal.Wait(0);
+                    return true;
+                }
+            }
+            item = default!;
+            return false;
+        }
+    }
+
     private bool TryDequeueInternal(out T item)
     {
         bool hasLow = _queues[(int)JobPriority.P2].Count > 0 || _queues[(int)JobPriority.P3].Count > 0;

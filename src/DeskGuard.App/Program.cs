@@ -13,6 +13,12 @@ using DeskGuard.Interop.Outlook.Sta;
 
 internal static partial class Program
 {
+    [LibraryImport("ole32.dll", EntryPoint = "OleInitialize")]
+    private static partial int OleInitialize(IntPtr pvReserved);
+
+    [LibraryImport("ole32.dll", EntryPoint = "OleUninitialize")]
+    private static partial void OleUninitialize();
+
     [LibraryImport("kernel32.dll", EntryPoint = "AttachConsole")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool AttachConsole(int dwProcessId);
@@ -22,6 +28,21 @@ internal static partial class Program
 
     [STAThread]
     private static async Task<int> Main(string[] args)
+    {
+        // Enforce OLE/COM Single-Threaded Apartment mode before any Shell/COM APIs are invoked
+        _ = OleInitialize(IntPtr.Zero);
+
+        try
+        {
+            return await RunAppAsync(args);
+        }
+        finally
+        {
+            OleUninitialize();
+        }
+    }
+
+    private static async Task<int> RunAppAsync(string[] args)
     {
         // Attach to parent console if invoked from terminal (CLI/PowerShell/cmd)
         _ = AttachConsole(ATTACH_PARENT_PROCESS);

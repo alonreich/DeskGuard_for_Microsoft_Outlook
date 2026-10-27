@@ -184,6 +184,28 @@ public sealed class VaultRepositoryTests : IDisposable
         Assert.Equal(1, stats.Suspicious);
     }
 
+    [Fact]
+    public void GetAllCategorizedEmails_EnforcesDefaultLimitPerCategory()
+    {
+        for (int i = 0; i < 150; i++)
+        {
+            _repository.InsertEmail(new EmailRecord
+            {
+                EntryId = $"Safe_{i}",
+                Verdict = "Safe",
+                Score = 100,
+                Date = "2026-10-27",
+                Time = "12:00:00"
+            });
+        }
+
+        var categorized = _repository.GetAllCategorizedEmails();
+        Assert.NotNull(categorized);
+        Assert.True(categorized.ContainsKey("safe"));
+        // Default limit is 100 per category
+        Assert.Equal(100, categorized["safe"].Count);
+    }
+
     public void Dispose()
     {
         _repository.Dispose();

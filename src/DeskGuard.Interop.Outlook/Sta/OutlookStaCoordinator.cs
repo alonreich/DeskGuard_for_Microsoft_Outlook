@@ -28,6 +28,7 @@ public sealed partial class OutlookStaCoordinator : IDisposable
         public required Action SetResult { get; init; }
         public required Action<Exception> SetException { get; init; }
         public required string Tag { get; init; }
+        public CancellationToken CancellationToken { get; init; } = default;
     }
 
     public OutlookStaCoordinator()
@@ -42,23 +43,30 @@ public sealed partial class OutlookStaCoordinator : IDisposable
         _initSignal.Wait(5000);
     }
 
-    public Task EnqueueAsync(Action<CancellationToken> job, JobPriority priority, string tag)
+    public Task EnqueueAsync(Action<CancellationToken> job, JobPriority priority, string tag, CancellationToken cancellationToken = default)
     {
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromCanceled(cancellationToken);
+
         TaskCompletionSource<bool> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
         StaJobWrapper wrapper = new()
         {
             Work = job,
             SetResult = () => tcs.TrySetResult(true),
             SetException = ex => tcs.TrySetException(ex),
-            Tag = tag
+            Tag = tag,
+            CancellationToken = cancellationToken
         };
 
         _queue.Enqueue(wrapper, priority);
         return tcs.Task;
     }
 
-    public Task<T> EnqueueAsync<T>(Func<CancellationToken, T> job, JobPriority priority, string tag)
+    public Task<T> EnqueueAsync<T>(Func<CancellationToken, T> job, JobPriority priority, string tag, CancellationToken cancellationToken = default)
     {
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromCanceled<T>(cancellationToken);
+
         TaskCompletionSource<T> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
         T result = default!;
         StaJobWrapper wrapper = new()
@@ -66,7 +74,8 @@ public sealed partial class OutlookStaCoordinator : IDisposable
             Work = ct => { result = job(ct); },
             SetResult = () => tcs.TrySetResult(result),
             SetException = ex => tcs.TrySetException(ex),
-            Tag = tag
+            Tag = tag,
+            CancellationToken = cancellationToken
         };
 
         _queue.Enqueue(wrapper, priority);
@@ -126,6 +135,55 @@ public sealed partial class OutlookStaCoordinator : IDisposable
         }
     }
 
+    public void YieldIfHighPriority(CancellationToken ct = default)
+    {
+        // 1. Pump messages regardless so COM events (ItemAdd) are delivered
+        while (PeekMessage(out MSG msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+        {
+            if (msg.message == WM_QUIT) return;
+            TranslateMessage(ref msg);
+            DispatchMessage(ref msg);
+        }
+
+        // 2. Check if high-priority work is waiting
+        if (!_queue.HasHighPriorityJobs)
+        {
+            return;
+        }
+
+        // 3. Temporarily release COM lock to execute high-priority work
+        _globalComLock.Release();
+        try
+        {
+            while (_queue.HasHighPriorityJobs && !ct.IsCancellationRequested && !_cts.IsCancellationRequested)
+            {
+                while (PeekMessage(out MSG msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+                {
+                    if (msg.message == WM_QUIT) return;
+                    TranslateMessage(ref msg);
+                    DispatchMessage(ref msg);
+                }
+
+                if (_queue.TryDequeueHighPriority(out StaJobWrapper? highPriJob) && highPriJob != null)
+                {
+                    ExecuteJobWithRetry(highPriJob);
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            if (!_globalComLock.Acquire(30000))
+            {
+                LogMessage?.Invoke("WARN: Reacquiring Global\\MOS_Outlook_COM_Lock timed out during yield.");
+                throw new TimeoutException("Timed out reacquiring Global\\MOS_Outlook_COM_Lock after yield.");
+            }
+        }
+    }
+
     private void ExecuteJobWithRetry(StaJobWrapper job)
     {
         if (_circuitOpen)
@@ -136,6 +194,14 @@ public sealed partial class OutlookStaCoordinator : IDisposable
                 return;
             }
             _circuitOpen = false;
+        }
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, job.CancellationToken);
+        var effectiveCt = linkedCts.Token;
+        if (effectiveCt.IsCancellationRequested)
+        {
+            job.SetException(new OperationCanceledException(effectiveCt));
+            return;
         }
 
         bool lockTaken = false;
@@ -154,10 +220,21 @@ public sealed partial class OutlookStaCoordinator : IDisposable
 
             while (retryCount < maxRetries)
             {
+                if (effectiveCt.IsCancellationRequested)
+                {
+                    job.SetException(new OperationCanceledException(effectiveCt));
+                    return;
+                }
+
                 try
                 {
-                    job.Work(_cts.Token);
+                    job.Work(effectiveCt);
                     job.SetResult();
+                    return;
+                }
+                catch (OperationCanceledException ex)
+                {
+                    job.SetException(ex);
                     return;
                 }
                 catch (COMException ex) when (IsRetryableComException(ex.ErrorCode))
@@ -170,7 +247,7 @@ public sealed partial class OutlookStaCoordinator : IDisposable
 
                     int baseDelay = retryCount <= BackoffIntervals.Length ? BackoffIntervals[retryCount - 1] : 1000;
                     int jitter = Random.Shared.Next(10, 50);
-                    PumpDelay(baseDelay + jitter, _cts.Token);
+                    PumpDelay(baseDelay + jitter, effectiveCt);
                 }
                 catch (Exception ex)
                 {

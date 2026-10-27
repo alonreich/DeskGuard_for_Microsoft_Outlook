@@ -13,13 +13,15 @@ internal static class Program
     {
         bool devMode = args.Any(a => a.Equals("--dev", StringComparison.OrdinalIgnoreCase));
         bool stageOnly = args.Any(a => a.Equals("--stage-only", StringComparison.OrdinalIgnoreCase));
+        bool noRelease = args.Any(a => a.Equals("--no-release", StringComparison.OrdinalIgnoreCase));
 
         if (args.Any(a => a.Equals("--help", StringComparison.OrdinalIgnoreCase) || a.Equals("-h", StringComparison.OrdinalIgnoreCase)))
         {
-            Console.WriteLine("Usage: DeskGuard.Build [--dev] [--stage-only]");
-            Console.WriteLine("  (default)     Standard production build: Native AOT compile + Inno Setup installer");
-            Console.WriteLine("  --dev         Local dev build: .\\compiled is not wiped first");
+            Console.WriteLine("Usage: DeskGuard.Build [--dev] [--stage-only] [--no-release]");
+            Console.WriteLine("  (default)     Standard production build: compile, installer + auto git release");
+            Console.WriteLine("  --dev         Local dev build: .\\compiled is not wiped first, no release");
             Console.WriteLine("  --stage-only  Diagnostic: publish and write manifests, then stop");
+            Console.WriteLine("  --no-release  Build installer without publishing to git / GitHub releases");
             return ExitOk;
         }
 
@@ -88,6 +90,11 @@ internal static class Program
             }
 
             Staging.CleanupTempArtifacts(log);
+
+            if (!devMode && !stageOnly && !noRelease)
+            {
+                GitRelease.PublishToGit(Staging.CompiledExePath, log);
+            }
 
             log.Banner("===========================================================");
             log.Success("SUCCESS: DeskGuard build completed successfully!");

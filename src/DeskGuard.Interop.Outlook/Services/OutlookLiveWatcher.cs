@@ -12,6 +12,7 @@ public sealed class OutlookLiveWatcher : IDisposable
     private readonly OutlookStaCoordinator _coordinator;
     private readonly Action<string, string> _onNewMailItem;
     private readonly List<Items> _watchedItems = [];
+    private readonly List<MAPIFolder> _watchedFolders = [];
     private readonly List<ItemsEvents_ItemAddEventHandler> _handlers = [];
     private bool _isDisposed;
 
@@ -64,15 +65,13 @@ public sealed class OutlookLiveWatcher : IDisposable
                                     }
                                 }
                                 catch { }
-                                finally
-                                {
-                                    ComUtils.Release(item);
-                                }
                             };
 
                             items.ItemAdd += handler;
                             _watchedItems.Add(items);
                             _handlers.Add(handler);
+                            _watchedFolders.Add(inbox);
+                            inbox = null;
                         }
                     }
                 }
@@ -107,6 +106,12 @@ public sealed class OutlookLiveWatcher : IDisposable
         }
         _watchedItems.Clear();
         _handlers.Clear();
+
+        foreach (MAPIFolder folder in _watchedFolders)
+        {
+            ComUtils.Release(folder);
+        }
+        _watchedFolders.Clear();
     }
 
     public void Dispose()

@@ -117,7 +117,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 return watching;
             }
             return false;
-        }, JobPriority.P1, "StartLiveWatcher");
+        }, JobPriority.P1, "StartLiveWatcher", cancellationToken);
     }
 
     public Task StopLiveWatcherAsync()
@@ -130,7 +130,9 @@ public sealed class OutlookMapiService : IOutlookMapiService
         }, JobPriority.P1, "StopLiveWatcher");
     }
 
-    public Task ResetConnectionAsync()
+    public Task ResetConnectionAsync() => ResetConnectionAsync(default);
+
+    public Task ResetConnectionAsync(CancellationToken cancellationToken = default)
     {
         return _coordinator.EnqueueAsync(ct =>
         {
@@ -140,7 +142,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
             _mapiNamespace = null;
             _outlookApp = null;
             EngineStatusChanged?.Invoke("Standby", "Waiting for Outlook");
-        }, JobPriority.P1, "ResetConnection");
+        }, JobPriority.P1, "ResetConnection", cancellationToken);
     }
 
     public Task RunSweepAsync(DateTime sinceUtc, CancellationToken cancellationToken)
@@ -168,6 +170,8 @@ public sealed class OutlookMapiService : IOutlookMapiService
                     ProcessSingleEmail(item.EntryId, item.StoreId, isLiveArrival: false);
                     totalSwept++;
 
+                    _coordinator.YieldIfHighPriority(ct);
+
                     if (_scanDelayMs > 0)
                     {
                         OutlookStaCoordinator.PumpDelay(_scanDelayMs, ct);
@@ -176,7 +180,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
             }
 
             LogProgress?.Invoke($"Sweep completed: {totalSwept} items evaluated.");
-        }, JobPriority.P2, "SweepMailbox");
+        }, JobPriority.P2, "SweepMailbox", cancellationToken);
     }
 
     public Task RunCrawlerAsync(CancellationToken cancellationToken)
@@ -212,10 +216,16 @@ public sealed class OutlookMapiService : IOutlookMapiService
                         knownIds.Add(item.EntryId);
                         indexedCount++;
 
+                        _coordinator.YieldIfHighPriority(ct);
+
                         if (_scanDelayMs > 0)
                         {
                             OutlookStaCoordinator.PumpDelay(_scanDelayMs, ct);
                         }
+                    }
+                    else
+                    {
+                        _coordinator.YieldIfHighPriority(ct);
                     }
                 }
 
@@ -232,7 +242,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
             }
 
             LogProgress?.Invoke($"Crawl complete: {indexedCount} new items indexed into vault.");
-        }, JobPriority.P2, "CrawlMailbox");
+        }, JobPriority.P2, "CrawlMailbox", cancellationToken);
     }
 
     public Task<DuplicateScanResult> ScanDuplicatesAsync(CancellationToken cancellationToken)
@@ -292,6 +302,8 @@ public sealed class OutlookMapiService : IOutlookMapiService
                         finally { ComUtils.Release(mi); }
                     }
 
+                    _coordinator.YieldIfHighPriority(ct);
+
                     if (string.IsNullOrEmpty(dna)) continue;
 
                     if (!firstSeenByDna.TryGetValue(dna, out CrawledEmailSummary? first))
@@ -333,7 +345,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 ScannedCount = scanned,
                 Paused = false
             };
-        }, JobPriority.P3, "ScanDuplicates");
+        }, JobPriority.P3, "ScanDuplicates", cancellationToken);
     }
 
     public Task<DuplicateCleanupResult> CleanDuplicatesAsync(
@@ -500,7 +512,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 Mode = mode,
                 SkippedDetails = skipped
             };
-        }, JobPriority.P1, "CleanDuplicates");
+        }, JobPriority.P1, "CleanDuplicates", cancellationToken);
     }
 
     public Task<bool> ReleaseEmailAsync(
@@ -585,7 +597,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 ComUtils.Release(targetFolder);
                 ComUtils.Release(item);
             }
-        }, JobPriority.P1, $"Release:{entryId}");
+        }, JobPriority.P1, $"Release:{entryId}", cancellationToken);
     }
 
     public Task<bool> QuarantineEmailAsync(
@@ -642,7 +654,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 ComUtils.Release(targetFolder);
                 ComUtils.Release(item);
             }
-        }, JobPriority.P1, $"Quarantine:{entryId}");
+        }, JobPriority.P1, $"Quarantine:{entryId}", cancellationToken);
     }
 
     public Task<DeleteResult> DeleteEmailsAsync(
@@ -694,7 +706,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 DeletedIds = deleted,
                 Success = true
             };
-        }, JobPriority.P1, "DeleteEmails");
+        }, JobPriority.P1, "DeleteEmails", cancellationToken);
     }
 
     public Task<bool> OpenInOutlookAsync(
@@ -749,7 +761,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
             {
                 ComUtils.Release(item);
             }
-        }, JobPriority.P1, $"OpenInOutlook:{entryId}");
+        }, JobPriority.P1, $"OpenInOutlook:{entryId}", cancellationToken);
     }
 
     public Task<ExistenceCheckResult> CheckExistenceAsync(
@@ -835,7 +847,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 RemovedEntryIds = removed,
                 UserMovedEmails = userMoved
             };
-        }, JobPriority.P1, "CheckExistence");
+        }, JobPriority.P1, "CheckExistence", cancellationToken);
     }
 
     private void ProcessSingleEmail(
