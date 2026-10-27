@@ -62,6 +62,7 @@ Backend pushes real-time telemetry via `DashboardWindow.PostEvent(eventName, dat
 
 ---
 
-## 4. Native AOT & Threading Notes
-- The WebView2 control requires an STA thread. `DashboardWindow` runs on the application's primary STA thread.
+## 4. COM Threading & Message Pump Notes
+- The WebView2 control strictly requires an STA thread with an active Windows message pump during initialization (`WaitForTaskWithPump`) and message handling.
+- `DashboardWindow` runs on the application's primary STA thread.
 - Long-running MAPI scans or cloud threat lookups are never invoked directly on the UI thread; they are dispatched to background tasks or the `OutlookStaCoordinator`.

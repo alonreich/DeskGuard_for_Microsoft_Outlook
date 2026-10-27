@@ -3,7 +3,7 @@
 ## 1. System Vision
 DeskGuard for Microsoft Outlook is a high-performance Windows tray application engineered to provide real-time heuristic security scoring, phishing interception, threat intelligence verification, and mailbox deduplication for Microsoft Outlook desktop clients.
 
-It is built as a **.NET 9 / C# 13 Native AOT** compiled binary, requiring zero installed .NET runtime, zero administrative rights for standard operation, and minimal system resource footprint.
+It is built as a **.NET 9 / C# 13 Self-Contained Standalone** application, requiring zero installed .NET runtime, zero administrative rights for standard operation, and minimal system resource footprint.
 
 ---
 
@@ -59,11 +59,11 @@ Microsoft Outlook's COM Object Model is strictly apartment-threaded. Invoking Ou
 - **Solution**: `OutlookStaCoordinator` maintains a dedicated background STA thread with an active Windows message pump (`Application.Run`).
 - All COM operations (item reads, folder moves, event attachments) are dispatched through this coordinator using a prioritized work queue (`PriorityJobQueue`).
 
-### 3.2 Native AOT (Ahead-of-Time) Compilation
-DeskGuard compiles directly to native x64 machine code via the .NET 9 ILC compiler (`<PublishAot>true</PublishAot>`).
-- **No Dynamic Reflection**: All serialization utilizes compile-time source-generated contexts (`DeskGuardJsonContext`).
-- **Memory Footprint**: Working set is kept under ~40-60 MB.
-- **Instant Launch**: Starts instantaneously without JIT compilation overhead.
+### 3.2 Self-Contained Standalone Single-File Execution
+DeskGuard packages directly into a standalone self-contained x64 single-file executable (`<PublishSingleFile>true</PublishSingleFile>`, `<SelfContained>true</SelfContained>`).
+- **Full COM & WebView2 Interop**: Includes built-in COM interop support (`BuiltInComInteropSupport=true`), ensuring seamless marshalling for Microsoft Edge WebView2 and Outlook MAPI.
+- **STA Message Pumping**: Uses an active message pump during asynchronous initialization (`WaitForTaskWithPump`) to eliminate thread mode change errors (`RPC_E_CHANGED_MODE`).
+- **No External Dependencies**: Ships with its own optimized runtime, requiring no .NET installation on the host machine.
 
 ### 3.3 Zero-Impact Asynchronous Pipeline
 - Live incoming email events (`ItemAdd`) are captured immediately, extracted into immutable POCO records (`EmailRecord`), and handed off to background scoring tasks.

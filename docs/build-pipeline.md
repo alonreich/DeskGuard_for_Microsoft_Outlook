@@ -1,7 +1,7 @@
 # DeskGuard Build & Release Pipeline
 
 ## 1. Overview
-The DeskGuard build pipeline orchestrates automated testing, Native AOT compilation via the .NET 9 ILC toolchain, SHA-256 update manifest generation, and single-file Windows installer packaging via Inno Setup 6.
+The DeskGuard build pipeline orchestrates automated testing, self-contained single-file compilation, SHA-256 update manifest generation, and single-file Windows installer packaging via Inno Setup 6.
 
 ---
 
@@ -9,7 +9,7 @@ The DeskGuard build pipeline orchestrates automated testing, Native AOT compilat
 
 | Command            | Description                                                                              |
 |--------------------|------------------------------------------------------------------------------------------|
-| `.\Build.cmd`      | **Production Release**: Runs unit tests, compiles Native AOT, packages `compiled\DeskGuard.exe`. |
+| `.\Build.cmd`      | **Production Release**: Runs unit tests, publishes standalone single-file, packages `compiled\DeskGuard.exe`. |
 | `.\dev.cmd`        | **Local Dev Loop**: Launches an isolated developer sandbox run with debug logging.        |
 | `.\dev_build.cmd`  | **Fast Dev Build**: Incremental compilation without cleaning the output directory.       |
 
@@ -25,7 +25,7 @@ build/
 |   `-- DeskGuard.iss                # Inno Setup 6 installation script
 `-- DeskGuard.Build/                 # .NET 9 build utility project
     |-- Program.cs                   # Master build loop (tests -> publish -> manifest -> Inno)
-    |-- Staging.cs                   # Native AOT publish invocation & crash retry handling
+    |-- Staging.cs                   # Standalone publish invocation & manifest indexing
     |-- InnoInstaller.cs             # Inno Setup compiler (ISCC.exe) runner
     |-- BuildLog.cs                  # Dual file/console synchronized logger
     `-- Cli.cs                       # Process execution wrapper with streaming stdout/stderr
@@ -38,11 +38,10 @@ build/
 When running `.\Build.cmd`:
 1. **Pre-build Process Check**: Closes any existing DeskGuard instances running from this repository.
 2. **Unit Test Suite**: Executes `dotnet test DeskGuard.sln -c Release --no-restore`.
-3. **Native AOT Staging**: Publishes `DeskGuard.App` to `obj\StandaloneTemp\Staging\` using:
+3. **Standalone Staging**: Publishes `DeskGuard.App` to `obj\StandaloneTemp\Staging\` using:
    - Target framework: `net9.0-windows7.0`
    - Runtime identifier: `win-x64`
-   - Stripped debug symbols and speed-optimized machine code.
-   - Automatic single-threaded ILC fallback if multi-threaded compiler race condition occurs (`dotnet/runtime#108743`).
+   - Self-contained single-file bundle with built-in COM interop enabled.
 4. **Manifest Generation**: Generates `update.json` indexing file hashes for auto-updating.
 5. **Inno Setup Compilation**: Runs `ISCC.exe` with `DeskGuard.iss` to produce the single-file installer:
    - **Output**: `compiled\DeskGuard.exe` (~5.8 MB)

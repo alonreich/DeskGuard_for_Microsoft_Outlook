@@ -54,7 +54,7 @@ internal static class Program
 
             if (!Staging.Publish(Staging.StagingDirPath, buildVersion, log))
             {
-                log.Error("ERROR: Native AOT compilation failed.");
+                log.Error("ERROR: Standalone single-file compilation failed.");
                 log.WriteVerdictAndClose(ExitBuildFailed, DateTimeOffset.Now - started);
                 return ExitBuildFailed;
             }

@@ -8,12 +8,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     
-    <!-- Native AOT Compilation Constraints -->
-    <PublishAot>true</PublishAot>
+    <!-- Standalone Compilation Constraints -->
+    <PublishAot Condition="'$(PublishAot)' == ''">false</PublishAot>
     <StripSymbols>true</StripSymbols>
     <InvariantGlobalization>false</InvariantGlobalization>
     <OptimizationPreference>Speed</OptimizationPreference>
-    <TrimMode>full</TrimMode>
+    <TrimMode Condition="'$(PublishAot)' == 'true'">full</TrimMode>
     <IlcGenerateCompleteTypeMetadata>false</IlcGenerateCompleteTypeMetadata>
     <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
     <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>

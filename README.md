@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?style=flat-square&logo=windows)
-![.NET 9](https://img.shields.io/badge/.NET-9.0%20Native%20AOT-512BD4?style=flat-square&logo=dotnet)
+![.NET 9](https://img.shields.io/badge/.NET-9.0%20Standalone-512BD4?style=flat-square&logo=dotnet)
 ![C# 13](https://img.shields.io/badge/C%23-13.0-239120?style=flat-square&logo=csharp)
 ![Client](https://img.shields.io/badge/Outlook-2016%20%7C%202019%20%7C%202021%20%7C%20365-0078D4?style=flat-square&logo=microsoftoutlook)
 ![Storage](https://img.shields.io/badge/Storage-SQLite%20(WAL)-003B57?style=flat-square&logo=sqlite)
@@ -26,7 +26,7 @@
 
 **DeskGuard** is an ultra-lightweight Windows desktop companion that lives in your system tray. It attaches directly to Microsoft Outlook via native MAPI COM interop, intercepting threats, decoding phishing links, and eliminating duplicate emails before they clutter your workflow.
 
-Compiled directly to **Native AOT (x64 machine code)**, DeskGuard starts instantly, requires **no installed .NET runtime**, and runs with a minuscule memory footprint (~40 MB).
+Compiled as a **standalone self-contained single-file executable**, DeskGuard starts instantly, requires **no installed .NET runtime**, and runs with a minuscule memory footprint.
 
 ---
 
@@ -59,7 +59,7 @@ cd DeskGuard_for_Microsoft_Outlook
 :: 2. Launch live development sandbox
 dev.cmd
 
-:: 3. Build production Native AOT installer
+:: 3. Build production standalone installer
 Build.cmd
 ```
 
@@ -71,7 +71,7 @@ Build.cmd
 |---|---|
 | `dev.cmd` | Launches the developer runner with live console logging. |
 | `dev_build.cmd` | Fast incremental dev build without wiping compiled outputs. |
-| `Build.cmd` | Full production build: executes unit tests, Native AOT compilation, and Inno Setup installer packaging (`compiled\DeskGuard.exe`). |
+| `Build.cmd` | Full production build: executes unit tests, publishes standalone single-file, and Inno Setup installer packaging (`compiled\DeskGuard.exe`). |
 
 ---
 

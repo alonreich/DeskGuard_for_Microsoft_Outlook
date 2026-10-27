@@ -74,7 +74,7 @@ internal static class Staging
 
     public static void PurgeTempArtifacts(BuildLog log)
     {
-        log.Info("[NativeAOT] 1. Purging old temp folders...");
+        log.Info("[Build] 1. Purging old temp folders...");
         TryDeleteDirectory(StagingDir);
         TryDeleteDirectory(InstallerListDir);
         TryDeleteDirectory(@"obj\StandaloneTemp\NativeAot_final");
@@ -82,32 +82,24 @@ internal static class Staging
 
     public static bool Publish(string outputDir, string buildVersion, BuildLog log)
     {
-        log.Info("[NativeAOT] 2. Publishing DeskGuard.App to staging...");
-        if (RunPublish(outputDir, buildVersion, log, singleThreadedIlc: false, out bool ilcCrashed))
-        {
-            return true;
-        }
-        if (!ilcCrashed)
-        {
-            return false;
-        }
-
-        log.Warn("[NativeAOT] ILC (the NativeAOT compiler) crashed internally - known .NET 9 race (dotnet/runtime#108743).");
-        log.Warn("[NativeAOT] Retrying publish once with single-threaded ILC scanner (-p:IlcSingleThreaded=true)...");
-        return RunPublish(outputDir, buildVersion, log, singleThreadedIlc: true, out _);
+        log.Info("[Publish] 2. Publishing DeskGuard.App (Self-Contained Standalone Single-File)...");
+        return RunPublish(outputDir, buildVersion, log);
     }
 
-    private static bool RunPublish(string outputDir, string buildVersion, BuildLog log, bool singleThreadedIlc, out bool ilcCrashed)
+    private static bool RunPublish(string outputDir, string buildVersion, BuildLog log)
     {
-        bool crashed = false;
         List<string> arguments =
         [
             "publish", ProjectFile,
             "-c", "Release",
             "-r", "win-x64",
             "-p:TreatWarningsAsErrors=true",
-            "-p:PublishAot=true",
+            "-p:PublishAot=false",
+            "-p:PublishSingleFile=true",
             "-p:SelfContained=true",
+            "-p:PublishTrimmed=false",
+            "-p:IncludeNativeLibrariesForSelfExtract=true",
+            "-p:BuiltInComInteropSupport=true",
             "-p:AssemblyVersion=" + buildVersion,
             "-p:Version=" + buildVersion,
             "-p:FileVersion=" + buildVersion,
@@ -117,19 +109,8 @@ internal static class Staging
             "-o", outputDir,
             "-v", "m",
         ];
-        if (singleThreadedIlc)
-        {
-            arguments.Add("-p:IlcSingleThreaded=true");
-        }
 
-        int exit = Cli.RunStreaming("dotnet", arguments, log, line =>
-        {
-            foreach (string marker in IlcInternalCrashMarkers)
-            {
-                if (line.Contains(marker, StringComparison.Ordinal)) { crashed = true; break; }
-            }
-        });
-        ilcCrashed = crashed;
+        int exit = Cli.RunStreaming("dotnet", arguments, log);
         return exit == 0;
     }
 

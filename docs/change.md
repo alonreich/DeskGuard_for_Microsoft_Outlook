@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.2] - 2026-10-27
+
+### Fixed
+- Fixed blank white window on application launch by pumping Windows messages during WebView2 asynchronous initialization on the STA thread (`WaitForTaskWithPump`).
+- Resolved COM marshalling crash (`System.NotSupportedException: COM Interop requires ComWrapper instance registered for marshalling`) by transitioning packaging to self-contained single-file CoreCLR runtime with full built-in COM interop.
+- Added comprehensive fallback path resolution and diagnostic logging (`%LocalAppData%\DeskGuard\webview2.log`) for WebView2 environment, controller, and `wwwroot` virtual host mapping.
+
+---
+
 ## [1.0.1] - 2026-10-27
 
 ### Added

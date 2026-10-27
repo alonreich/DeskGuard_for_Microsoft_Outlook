@@ -135,6 +135,52 @@ internal sealed partial class DashboardWindow : IDisposable
     [LibraryImport("kernel32.dll", EntryPoint = "GetModuleHandleW")]
     private static partial IntPtr GetModuleHandleW(IntPtr lpModuleName);
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public UIntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public int pt_x;
+        public int pt_y;
+    }
+
+    [LibraryImport("user32.dll", EntryPoint = "PeekMessageW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool PeekMessageW(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+    [LibraryImport("user32.dll", EntryPoint = "TranslateMessage")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool TranslateMessage(ref MSG lpMsg);
+
+    [LibraryImport("user32.dll", EntryPoint = "DispatchMessageW")]
+    private static partial IntPtr DispatchMessageW(ref MSG lpMsg);
+
+    [LibraryImport("user32.dll", EntryPoint = "MsgWaitForMultipleObjects")]
+    private static partial uint MsgWaitForMultipleObjects(uint nCount, IntPtr pHandles, [MarshalAs(UnmanagedType.Bool)] bool bWaitAll, uint dwMilliseconds, uint dwWakeMask);
+
+    private const uint PM_REMOVE = 0x0001;
+    private const uint QS_ALLINPUT = 0x04FF;
+
+    private static T WaitForTaskWithPump<T>(Task<T> task)
+    {
+        while (!task.IsCompleted)
+        {
+            while (PeekMessageW(out MSG msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+            {
+                TranslateMessage(ref msg);
+                DispatchMessageW(ref msg);
+            }
+            if (!task.IsCompleted)
+            {
+                MsgWaitForMultipleObjects(0, IntPtr.Zero, false, 10, QS_ALLINPUT);
+            }
+        }
+        return task.GetAwaiter().GetResult();
+    }
+
     public DashboardWindow(VaultRepository vault, OutlookMapiService mapiService, ScanConfiguration config)
     {
         _instance = this;
@@ -185,27 +231,48 @@ internal sealed partial class DashboardWindow : IDisposable
             IntPtr.Zero);
     }
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync()
     {
-        if (_isInitialized || _hwnd == IntPtr.Zero) return;
+        if (_isInitialized || _hwnd == IntPtr.Zero) return Task.CompletedTask;
+
+        string userDataFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "DeskGuard",
+            "webview2");
+        Directory.CreateDirectory(userDataFolder);
+
+        string logPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "DeskGuard",
+            "webview2.log");
+
+        void Log(string msg)
+        {
+            try { File.AppendAllText(logPath, $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] {msg}{Environment.NewLine}"); } catch { }
+            Console.WriteLine($"[Dashboard] {msg}");
+        }
 
         try
         {
-            string userDataFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "DeskGuard",
-                "webview2");
-            Directory.CreateDirectory(userDataFolder);
+            Log($"Starting WebView2 initialization. BaseDir={AppContext.BaseDirectory}");
 
             try
             {
                 CoreWebView2Environment.SetLoaderDllFolderPath(AppContext.BaseDirectory);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log($"SetLoaderDllFolderPath note: {ex.Message}");
+            }
 
-            CoreWebView2Environment env = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
-            _controller = await env.CreateCoreWebView2ControllerAsync(_hwnd);
+            Log("Creating CoreWebView2Environment with message pump...");
+            CoreWebView2Environment env = WaitForTaskWithPump(CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder));
+            Log($"CoreWebView2Environment created. BrowserVersion: {env.BrowserVersionString}");
+
+            Log("Creating CoreWebView2Controller with message pump...");
+            _controller = WaitForTaskWithPump(env.CreateCoreWebView2ControllerAsync(_hwnd));
             _coreWebView = _controller.CoreWebView2;
+            Log("CoreWebView2Controller created successfully.");
 
             if (GetClientRect(_hwnd, out RECT rc))
             {
@@ -214,6 +281,17 @@ internal sealed partial class DashboardWindow : IDisposable
             _controller.IsVisible = true;
 
             string wwwrootDir = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+            if (!Directory.Exists(wwwrootDir))
+            {
+                string? exeDir = Path.GetDirectoryName(Environment.ProcessPath);
+                if (!string.IsNullOrEmpty(exeDir) && Directory.Exists(Path.Combine(exeDir, "wwwroot")))
+                {
+                    wwwrootDir = Path.Combine(exeDir, "wwwroot");
+                }
+            }
+
+            Log($"Resolved wwwroot: {wwwrootDir} (Exists: {Directory.Exists(wwwrootDir)})");
+
             if (Directory.Exists(wwwrootDir))
             {
                 _coreWebView.SetVirtualHostNameToFolderMapping(
@@ -221,7 +299,17 @@ internal sealed partial class DashboardWindow : IDisposable
                     wwwrootDir,
                     CoreWebView2HostResourceAccessKind.Allow);
 
+                _coreWebView.NavigationCompleted += (s, e) =>
+                {
+                    Log($"NavigationCompleted: IsSuccess={e.IsSuccess}, WebErrorStatus={e.WebErrorStatus}");
+                };
+
                 _coreWebView.Navigate("https://app.deskguard/index.html");
+                Log("Navigated to https://app.deskguard/index.html");
+            }
+            else
+            {
+                Log($"CRITICAL: wwwroot folder not found at '{wwwrootDir}'!");
             }
 
             _coreWebView.WebMessageReceived += OnWebMessageReceived;
@@ -229,8 +317,10 @@ internal sealed partial class DashboardWindow : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Dashboard] WebView2 initialization error: {ex.Message}");
+            Log($"FATAL: WebView2 initialization error: {ex}");
         }
+
+        return Task.CompletedTask;
     }
 
     public void ShowAndFocus()

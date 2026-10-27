@@ -15,10 +15,11 @@ DeskGuard for Microsoft Outlook - Project Structure & AI Documentation Router
    AI agents must NEVER modify source code without updating the corresponding
    module documentation in `docs/`. Keep minimaps and descriptions 100% accurate.
 
-3. NATIVE AOT & COM CONSTRAINTS:
-   - DeskGuard compiles via .NET 9 Native AOT (`<PublishAot>true</PublishAot>`).
-     Never introduce unbounded reflection, non-source-generated JSON serializers,
-     or dynamic code generation.
+3. COM & STANDALONE THREADING CONSTRAINTS:
+   - DeskGuard packages as a standalone self-contained single-file application
+     with built-in COM interop enabled for WebView2 and Outlook MAPI.
+   - All WebView2 initialization and UI interaction must occur on the STA thread
+     with active Windows message pumping.
    - All Outlook COM/MAPI calls MUST run exclusively on the dedicated STA thread
      coordinated by `OutlookStaCoordinator`. Never invoke COM from thread pool workers.
 --------------------------------------------------------------------------------
@@ -35,18 +36,18 @@ specific documentation file corresponding to your task domain:
 | Scoring heuristics, SafeLinks, Intel| docs/core.md                      |
 | Outlook MAPI COM, STA, Live Watcher | docs/interop.md                   |
 | SQLite, Migrations, Deduplication   | docs/data.md                      |
-| Build scripts, Native AOT, InnoSetup| docs/build-pipeline.md            |
+| Build scripts, Packaging, InnoSetup | docs/build-pipeline.md            |
 | Pending changes, Changelog staging  | docs/change.md                    |
 +-------------------------------------+-----------------------------------+
 
 HIGH-LEVEL REPOSITORY RECONNAISSANCE MINIMAP
 --------------------------------------------------------------------------------
 DeskGuard_for_Microsoft_Outlook/
-|-- Build.cmd                        # Production build entrypoint (Native AOT + Inno Setup)
+|-- Build.cmd                        # Production build entrypoint (Standalone + Inno Setup)
 |-- dev.cmd                          # Fast local developer runner / sandbox
 |-- dev_build.cmd                    # Fast dev compilation without wiping compiled dir
 |-- DeskGuard.sln                    # Visual Studio / .NET 9 Solution
-|-- Directory.Build.props            # Global compiler & Native AOT optimization flags
+|-- Directory.Build.props            # Global compiler & optimization flags
 |-- project_structure.txt            # [Entry Point] This router file (AI entry)
 |-- README.md                        # Human-readable quick start and feature guide
 |-- .gitignore                       # Git exclusion rules (bin, obj, compiled, logs)
@@ -62,7 +63,7 @@ DeskGuard_for_Microsoft_Outlook/
 |       |-- Program.cs               # Build runner (test -> publish -> hash -> installer)
 |       |-- Cli.cs                   # Streaming subprocess execution helper
 |       |-- BuildLog.cs              # Dual console/file build logger
-|       |-- Staging.cs               # Native AOT publish & manifest generator
+|       |-- Staging.cs               # Standalone publish & manifest generator
 |       `-- InnoInstaller.cs         # Inno Setup compiler (ISCC.exe) wrapper
 |
 |-- docs/                            # Modular domain documentation (see router above)
@@ -71,7 +72,7 @@ DeskGuard_for_Microsoft_Outlook/
 |   |-- core.md                      # Threat scoring, SafeLinks parser & models
 |   |-- interop.md                   # Outlook MAPI COM interface & STA thread coordinator
 |   |-- data.md                      # SQLite repository, schema migrations & deduplication
-|   |-- build-pipeline.md            # Build automation, packaging & Native AOT pipeline
+|   |-- build-pipeline.md            # Build automation, packaging & deployment pipeline
 |   `-- change.md                    # Staged changelog for pending and published versions
 |
 |-- src/
