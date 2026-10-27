@@ -7,21 +7,21 @@
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    <div class="titlebar">
+    <div class="titlebar" id="app-titlebar">
         <div class="titlebar-logo">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,7C13.4,7 14.8,7.3 16,7.9V11C16,14.75 14.3,18.25 11.5,20.5L12,20.9L12.5,20.5C9.7,18.25 8,14.75 8,11V7.9C9.2,7.3 10.6,7 12,7Z"/></svg>
             DeskGuard for Microsoft Outlook
         </div>
         <div class="titlebar-controls">
-            <div class="control-btn" onclick="window.winMinimize()" title="Minimize" aria-label="Minimize">
+            <button type="button" class="control-btn" onclick="window.winMinimize()" title="Minimize" aria-label="Minimize">
                 <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor"><rect width="10" height="1"/></svg>
-            </div>
-            <div class="control-btn" onclick="window.winMaximize()" title="Maximize / Restore" aria-label="Maximize">
+            </button>
+            <button type="button" class="control-btn" onclick="window.winMaximize()" title="Maximize / Restore" aria-label="Maximize">
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"><rect x="0.5" y="0.5" width="9" height="9"/></svg>
-            </div>
-            <div class="control-btn close" onclick="window.winClose()" title="Close (Hide to Tray)" aria-label="Close">
+            </button>
+            <button type="button" class="control-btn close" onclick="window.winClose()" title="Close (Hide to Tray)" aria-label="Close">
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M10 1.013L8.987 0 5 3.987 1.013 0 0 1.013 3.987 5 0 8.987 1.013 10 5 6.013 8.987 10 10 8.987 6.013 5z"/></svg>
-            </div>
+            </button>
         </div>
     </div>
     <div class="app-container">
@@ -67,34 +67,34 @@
                 <div class="header-area">
                     <h1>Security Dashboard</h1>
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <button id="dashboard-power-btn" onclick="window.toggleProtectionPower()" class="dashboard-power-btn active" title="Toggle Real-Time Mailbox Protection">
-                            <span class="power-indicator-dot"></span>
-                            <span id="dashboard-power-text">Protection ON</span>
+                        <button type="button" id="dashboard-power-btn" onclick="window.toggleProtectionPower()" class="protection-toggle-btn active" role="switch" aria-checked="true" title="Real-Time Mailbox Protection is Active. Click to turn off.">
+                            <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
+                            <span id="dashboard-power-text" class="toggle-label">Protection Active</span>
                         </button>
-                        <div id="engine-status" class="badge badge-safe">Monitoring Active</div>
+                        <div id="engine-status" style="display: none;"></div>
                     </div>
                 </div>
 
                 <div class="dashboard-layout">
                     <div class="stats-grid">
-                        <div class="stat-card" onclick="switchCategory('all')" id="card-all">
+                        <div class="stat-card" onclick="switchCategory('all')" id="card-all" role="button" tabindex="0" title="Filter by All Scanned">
                             <div class="stat-label">All Scanned</div>
                             <div id="stat-all" class="stat-value" style="color: var(--accent);">0</div>
                         </div>
-                        <div class="stat-card active" onclick="switchCategory('malicious')" id="card-malicious">
-                            <div class="stat-label">Blocked Threats</div>
+                        <div class="stat-card active" onclick="switchCategory('malicious')" id="card-malicious" role="button" tabindex="0" title="Filter by Malicious">
+                            <div class="stat-label">Malicious</div>
                             <div id="stat-malicious" class="stat-value" style="color: var(--danger);">0</div>
                         </div>
-                        <div class="stat-card" onclick="switchCategory('suspicious')" id="card-suspicious">
+                        <div class="stat-card" onclick="switchCategory('suspicious')" id="card-suspicious" role="button" tabindex="0" title="Filter by Suspicious">
                             <div class="stat-label">Suspicious</div>
                             <div id="stat-suspicious" class="stat-value" style="color: var(--warn);">0</div>
                         </div>
-                        <div class="stat-card" onclick="switchCategory('spam')" id="card-spam">
-                            <div class="stat-label">Spam Filtered</div>
+                        <div class="stat-card" onclick="switchCategory('spam')" id="card-spam" role="button" tabindex="0" title="Filter by Spam">
+                            <div class="stat-label">Spam</div>
                             <div id="stat-spam" class="stat-value" style="color: #996100;">0</div>
                         </div>
-                        <div class="stat-card" onclick="switchCategory('safe')" id="card-safe">
-                            <div class="stat-label">Clean Emails</div>
+                        <div class="stat-card" onclick="switchCategory('safe')" id="card-safe" role="button" tabindex="0" title="Filter by Clean">
+                            <div class="stat-label">Clean</div>
                             <div id="stat-safe" class="stat-value" style="color: var(--ok);">0</div>
                         </div>
                     </div>
@@ -462,6 +462,7 @@
     <script src="ui_search.js"></script>
     <script src="ui_activity.js"></script>
     <script src="ui_reset.js"></script>
+    <script src="ui_modals.js"></script>
     <script src="ui_main.js"></script>
 </body>
 </html>

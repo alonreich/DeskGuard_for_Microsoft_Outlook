@@ -91,9 +91,17 @@ public sealed class OutlookMapiService : IOutlookMapiService
             {
                 _mapiNamespace = _outlookApp.GetNamespace("MAPI");
             }
+            else
+            {
+                _mapiNamespace = null;
+            }
         }
         catch (Exception ex)
         {
+            ComUtils.Release(_mapiNamespace);
+            ComUtils.Release(_outlookApp);
+            _outlookApp = null;
+            _mapiNamespace = null;
             LogProgress?.Invoke($"[OutlookMapiService] Outlook connection attempt: {ex.Message}");
         }
     }
@@ -181,6 +189,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 {
                     if (ct.IsCancellationRequested) break;
                     if (_processedFingerprints.ContainsKey(item.EntryId)) continue;
+                    if (!string.IsNullOrEmpty(item.MessageId) && _processedFingerprints.ContainsKey($"mid:{item.MessageId}")) continue;
 
                     ProcessSingleEmail(item.EntryId, item.StoreId, isLiveArrival: false);
                     totalSwept++;
@@ -1031,6 +1040,8 @@ public sealed class OutlookMapiService : IOutlookMapiService
 
             _vault.InsertEmail(record);
             _processedFingerprints.TryAdd(fp, 0);
+            _processedFingerprints.TryAdd(entryId, 0);
+            if (!string.IsNullOrEmpty(record.MessageId)) _processedFingerprints.TryAdd($"mid:{record.MessageId}", 0);
             _vault.AddProcessed([fp]);
 
             EmailScanned?.Invoke(record);

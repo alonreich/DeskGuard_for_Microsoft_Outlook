@@ -176,9 +176,9 @@ public sealed partial class OutlookStaCoordinator : IDisposable
         }
         finally
         {
-            if (!_globalComLock.Acquire(30000))
+            if (!_globalComLock.Acquire(5000))
             {
-                LogMessage?.Invoke("WARN: Reacquiring Global\\MOS_Outlook_COM_Lock timed out during yield.");
+                LogMessage?.Invoke("WARN: Reacquiring Global\\MOS_Outlook_COM_Lock timed out during yield (5000ms).");
                 throw new TimeoutException("Timed out reacquiring Global\\MOS_Outlook_COM_Lock after yield.");
             }
         }
@@ -207,10 +207,10 @@ public sealed partial class OutlookStaCoordinator : IDisposable
         bool lockTaken = false;
         try
         {
-            lockTaken = _globalComLock.Acquire(30000);
+            lockTaken = _globalComLock.Acquire(5000);
             if (!lockTaken)
             {
-                LogMessage?.Invoke("WARN: Timed out waiting for Global\\MOS_Outlook_COM_Lock");
+                LogMessage?.Invoke("WARN: Timed out waiting for Global\\MOS_Outlook_COM_Lock (5000ms)");
                 job.SetException(new TimeoutException("Timed out waiting for Global\\MOS_Outlook_COM_Lock"));
                 return;
             }

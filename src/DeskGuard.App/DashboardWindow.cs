@@ -82,8 +82,22 @@ internal sealed partial class DashboardWindow : IDisposable
     private const uint WM_SIZE = 0x0005;
     private const uint WM_CLOSE = 0x0010;
     private const uint WM_DESTROY = 0x0002;
+    private const uint WM_NCCALCSIZE = 0x0083;
+    private const uint WM_NCHITTEST = 0x0084;
     private const uint WM_NCLBUTTONDOWN = 0x00A1;
+    private const uint WM_SYSCOMMAND = 0x0112;
+    private const uint WM_EXITSIZEMOVE = 0x0232;
+
+    private const int HTCLIENT = 1;
     private const int HTCAPTION = 2;
+    private const int HTLEFT = 10;
+    private const int HTRIGHT = 11;
+    private const int HTTOP = 12;
+    private const int HTTOPLEFT = 13;
+    private const int HTTOPRIGHT = 14;
+    private const int HTBOTTOM = 15;
+    private const int HTBOTTOMLEFT = 16;
+    private const int HTBOTTOMRIGHT = 17;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct WNDCLASSEXW
@@ -145,6 +159,10 @@ internal sealed partial class DashboardWindow : IDisposable
     [LibraryImport("user32.dll", EntryPoint = "GetClientRect")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowRect")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
     [LibraryImport("user32.dll", EntryPoint = "GetSystemMetrics")]
     public static partial int GetSystemMetrics(int nIndex);
@@ -246,15 +264,20 @@ internal sealed partial class DashboardWindow : IDisposable
 
         int screenWidth = GetSystemMetrics(SM_CXSCREEN);
         int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-        int x = Math.Max(0, (screenWidth - DefaultWidth) / 2);
-        int y = Math.Max(0, (screenHeight - DefaultHeight) / 2);
+        int width = _config.WindowWidth > 400 ? _config.WindowWidth : DefaultWidth;
+        int height = _config.WindowHeight > 300 ? _config.WindowHeight : DefaultHeight;
+        int x = _config.WindowX >= 0 ? _config.WindowX : Math.Max(0, (screenWidth - width) / 2);
+        int y = _config.WindowY >= 0 ? _config.WindowY : Math.Max(0, (screenHeight - height) / 2);
+
+        if (x < 0 || x > screenWidth - 100) x = Math.Max(0, (screenWidth - width) / 2);
+        if (y < 0 || y > screenHeight - 100) y = Math.Max(0, (screenHeight - height) / 2);
 
         _hwnd = CreateWindowExW(
             0,
             WindowClassName,
             WindowTitle,
             WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-            x, y, DefaultWidth, DefaultHeight,
+            x, y, width, height,
             IntPtr.Zero,
             IntPtr.Zero,
             hInstance,
@@ -318,6 +341,12 @@ internal sealed partial class DashboardWindow : IDisposable
                     wwwrootDir,
                     CoreWebView2HostResourceAccessKind.Allow);
 
+                try
+                {
+                    _coreWebView.Settings.IsNonClientRegionSupportEnabled = true;
+                }
+                catch { }
+
                 _coreWebView.NavigationCompleted += (s, e) =>
                 {
                     Log($"NavigationCompleted: IsSuccess={e.IsSuccess}, WebErrorStatus={e.WebErrorStatus}");
@@ -343,7 +372,14 @@ internal sealed partial class DashboardWindow : IDisposable
     public void ShowAndFocus()
     {
         if (_hwnd == IntPtr.Zero) return;
-        ShowWindow(_hwnd, SW_RESTORE);
+        if (_config.WindowMaximized)
+        {
+            ShowWindow(_hwnd, SW_MAXIMIZE);
+        }
+        else
+        {
+            ShowWindow(_hwnd, SW_RESTORE);
+        }
         SetForegroundWindow(_hwnd);
     }
 
@@ -492,9 +528,18 @@ internal sealed partial class DashboardWindow : IDisposable
                 return new { ok = true };
 
             case "window-maximize":
-                if (IsZoomed(_hwnd)) ShowWindow(_hwnd, SW_RESTORE);
-                else ShowWindow(_hwnd, SW_MAXIMIZE);
-                return new { ok = true };
+                if (IsZoomed(_hwnd))
+                {
+                    ShowWindow(_hwnd, SW_RESTORE);
+                    _config.WindowMaximized = false;
+                }
+                else
+                {
+                    ShowWindow(_hwnd, SW_MAXIMIZE);
+                    _config.WindowMaximized = true;
+                }
+                SaveConfig();
+                return new { ok = true, maximized = _config.WindowMaximized };
 
             case "window-hide":
             case "window-close":
@@ -505,6 +550,35 @@ internal sealed partial class DashboardWindow : IDisposable
                 ReleaseCapture();
                 SendMessageW(_hwnd, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
                 return new { ok = true };
+
+            case "window-resize":
+                int edge = 8;
+                if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("edge", out var edgeProp))
+                {
+                    edge = edgeProp.GetInt32();
+                }
+                else if (payload.ValueKind == JsonValueKind.Number)
+                {
+                    edge = payload.GetInt32();
+                }
+                ReleaseCapture();
+                SendMessageW(_hwnd, WM_SYSCOMMAND, (IntPtr)(0xF000 + edge), IntPtr.Zero);
+                return new { ok = true };
+
+            case "save-modal-config":
+                string mId = payload.TryGetProperty("id", out var midP) ? midP.GetString() ?? "" : "";
+                string mState = payload.TryGetProperty("state", out var mstP) ? mstP.GetString() ?? "" : "";
+                if (!string.IsNullOrEmpty(mId))
+                {
+                    _config.ModalStates[mId] = mState;
+                    SaveConfig();
+                }
+                return new { ok = true };
+
+            case "get-modal-config":
+                string qId = payload.TryGetProperty("id", out var qidP) ? qidP.GetString() ?? "" : "";
+                string savedState = _config.ModalStates.GetValueOrDefault(qId, "");
+                return new { ok = true, state = savedState };
 
             case "get-stats":
                 return await Task.Run(() =>
@@ -735,18 +809,31 @@ internal sealed partial class DashboardWindow : IDisposable
                 string rStoreId = payload.TryGetProperty("storeId", out var rs) ? rs.GetString() ?? string.Empty : string.Empty;
                 string rFp = payload.TryGetProperty("fingerprint", out var rf) ? rf.GetString() ?? string.Empty : string.Empty;
                 bool released = await _mapiService.ReleaseEmailAsync(rEntryId, rStoreId, rFp, 6, _cts.Token);
-                return new { ok = released };
+                return new { ok = released, success = released };
 
             case "quarantine-email":
                 string qEntryId = payload.TryGetProperty("entryId", out var qe) ? qe.GetString() ?? string.Empty : string.Empty;
                 string qStoreId = payload.TryGetProperty("storeId", out var qs) ? qs.GetString() ?? string.Empty : string.Empty;
                 bool quarantined = await _mapiService.QuarantineEmailAsync(qEntryId, qStoreId, 23, _cts.Token);
-                return new { ok = quarantined };
+                return new { ok = quarantined, success = quarantined };
 
             case "delete-email":
-                string dEntryId = payload.TryGetProperty("entryId", out var de) ? de.GetString() ?? string.Empty : string.Empty;
-                var delResult = await _mapiService.DeleteEmailsAsync([dEntryId], null, _cts.Token);
-                return new { ok = delResult.Success, count = delResult.Count };
+                List<string> delIds = [];
+                if (payload.TryGetProperty("entryIds", out var idsProp) && idsProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var elem in idsProp.EnumerateArray())
+                    {
+                        string s = elem.GetString() ?? string.Empty;
+                        if (!string.IsNullOrEmpty(s)) delIds.Add(s);
+                    }
+                }
+                if (delIds.Count == 0 && payload.TryGetProperty("entryId", out var de))
+                {
+                    string s = de.GetString() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(s)) delIds.Add(s);
+                }
+                var delResult = await _mapiService.DeleteEmailsAsync(delIds, null, _cts.Token);
+                return new { ok = delResult.Success, success = delResult.Success, count = delResult.Count };
 
             case "open-email":
                 string oEntryId = payload.TryGetProperty("entryId", out var oe) ? oe.GetString() ?? string.Empty : string.Empty;
@@ -755,30 +842,64 @@ internal sealed partial class DashboardWindow : IDisposable
                 return new { ok = opened, success = opened };
 
             case "verify-existence":
-                return new { ok = true };
+                return new { ok = true, success = true, removedCount = 0 };
 
             case "search-vault":
                 string q = payload.TryGetProperty("query", out var qp) ? qp.GetString() ?? string.Empty : string.Empty;
                 int limit = payload.TryGetProperty("limit", out var lp) ? lp.GetInt32() : 50;
                 int offset = payload.TryGetProperty("offset", out var op) ? op.GetInt32() : 0;
                 string? folderFilter = payload.TryGetProperty("folder", out var fp) ? fp.GetString() : null;
+                string catFilter = payload.TryGetProperty("category", out var cp) ? cp.GetString() ?? string.Empty : string.Empty;
+                string verFilter = payload.TryGetProperty("verdict", out var vp) ? vp.GetString() ?? string.Empty : string.Empty;
+                string dFrom = payload.TryGetProperty("dateFrom", out var dfp) ? dfp.GetString() ?? string.Empty : string.Empty;
+                string dTo = payload.TryGetProperty("dateTo", out var dtp) ? dtp.GetString() ?? string.Empty : string.Empty;
+                bool hasAtt = payload.TryGetProperty("hasAttachment", out var hap) && hap.GetBoolean();
+                string sBy = payload.TryGetProperty("sortBy", out var sbp) ? sbp.GetString() ?? "date" : "date";
+                string sOrd = payload.TryGetProperty("sortOrder", out var sop) ? sop.GetString() ?? "desc" : "desc";
+                string senderFilter = payload.TryGetProperty("fromFilter", out var ffp) ? ffp.GetString() ?? string.Empty : string.Empty;
+
                 return await Task.Run(() =>
                 {
+                    string effectiveQuery = q;
+                    if (!string.IsNullOrWhiteSpace(senderFilter))
+                    {
+                        effectiveQuery = string.IsNullOrWhiteSpace(effectiveQuery) ? senderFilter : $"{effectiveQuery} {senderFilter}";
+                    }
+
                     var searchRes = _vault.SearchEmails(new SearchParameters
                     {
-                        Query = q,
+                        Query = effectiveQuery,
+                        Category = catFilter,
+                        Verdict = verFilter,
+                        DateFrom = dFrom,
+                        DateTo = dTo,
+                        HasAttachment = hasAtt,
                         Limit = limit,
                         Offset = offset,
                         Folder = folderFilter ?? string.Empty,
-                        SortBy = "date",
-                        SortOrder = "desc"
+                        SortBy = sBy,
+                        SortOrder = sOrd
                     });
-                    return (object)new { items = searchRes.Rows, total = searchRes.Total };
+
+                    return (object)new
+                    {
+                        ok = true,
+                        success = true,
+                        items = searchRes.Rows,
+                        rows = searchRes.Rows,
+                        total = searchRes.Total,
+                        results = new
+                        {
+                            rows = searchRes.Rows,
+                            total = searchRes.Total
+                        }
+                    };
                 });
 
             case "get-sender-suggestions":
-                string prefix = payload.GetString() ?? string.Empty;
-                return await Task.Run(() => (object)_vault.GetSenderSuggestions(prefix, 10));
+                string prefix = payload.ValueKind == JsonValueKind.String ? payload.GetString() ?? string.Empty : string.Empty;
+                var suggestionsList = await Task.Run(() => _vault.GetSenderSuggestions(prefix, 10));
+                return new { ok = true, success = true, suggestions = suggestionsList };
 
             case "scan-duplicates":
                 bool includeJunk = false;
@@ -826,7 +947,8 @@ internal sealed partial class DashboardWindow : IDisposable
 
             case "get-events":
                 int evLimit = payload.TryGetProperty("limit", out var elp) ? elp.GetInt32() : 100;
-                return await Task.Run(() => (object)_vault.GetEvents(evLimit));
+                string? evKind = payload.TryGetProperty("kind", out var ekp) && ekp.ValueKind == JsonValueKind.String ? ekp.GetString() : null;
+                return await Task.Run(() => (object)_vault.GetEvents(evLimit, 0, evKind));
 
             case "get-forensics":
                 string forId = string.Empty;
@@ -901,11 +1023,47 @@ internal sealed partial class DashboardWindow : IDisposable
     {
         if (_instance != null)
         {
+            if (msg == WM_NCCALCSIZE && wParam != UIntPtr.Zero)
+            {
+                return IntPtr.Zero;
+            }
+
+            if (msg == WM_NCHITTEST)
+            {
+                int xPos = unchecked((short)(long)lParam);
+                int yPos = unchecked((short)((long)lParam >> 16));
+
+                if (GetWindowRect(hWnd, out RECT winRect))
+                {
+                    const int borderThickness = 8;
+                    bool left = xPos >= winRect.Left && xPos < winRect.Left + borderThickness;
+                    bool right = xPos < winRect.Right && xPos >= winRect.Right - borderThickness;
+                    bool top = yPos >= winRect.Top && yPos < winRect.Top + borderThickness;
+                    bool bottom = yPos < winRect.Bottom && yPos >= winRect.Bottom - borderThickness;
+
+                    if (top && left) return (IntPtr)HTTOPLEFT;
+                    if (top && right) return (IntPtr)HTTOPRIGHT;
+                    if (bottom && left) return (IntPtr)HTBOTTOMLEFT;
+                    if (bottom && right) return (IntPtr)HTBOTTOMRIGHT;
+                    if (left) return (IntPtr)HTLEFT;
+                    if (right) return (IntPtr)HTRIGHT;
+                    if (top) return (IntPtr)HTTOP;
+                    if (bottom) return (IntPtr)HTBOTTOM;
+                }
+            }
+
             if (msg == WM_SIZE)
             {
                 _instance.OnResize();
                 return IntPtr.Zero;
             }
+
+            if (msg == WM_EXITSIZEMOVE)
+            {
+                _instance.OnExitSizeMove();
+                return IntPtr.Zero;
+            }
+
             if (msg == WM_CLOSE)
             {
                 ShowWindow(hWnd, SW_HIDE);
@@ -913,6 +1071,21 @@ internal sealed partial class DashboardWindow : IDisposable
             }
         }
         return DefWindowProcW(hWnd, msg, wParam, lParam);
+    }
+
+    private void OnExitSizeMove()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        bool isMax = IsZoomed(_hwnd);
+        _config.WindowMaximized = isMax;
+        if (!isMax && GetWindowRect(_hwnd, out RECT rc))
+        {
+            _config.WindowX = rc.Left;
+            _config.WindowY = rc.Top;
+            _config.WindowWidth = rc.Right - rc.Left;
+            _config.WindowHeight = rc.Bottom - rc.Top;
+        }
+        SaveConfig();
     }
 
     private void OnResize()

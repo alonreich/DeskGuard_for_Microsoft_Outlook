@@ -25,6 +25,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.7] - 2026-10-27
+
+### Added
+- Titlebar window dragging support via native Win32 `WM_NCLBUTTONDOWN / HTCAPTION` IPC channel (`window.winDrag()` in `bridge.js`, `mousedown` on `.titlebar` in `ui_main.js`, issue 30 & Rank 4).
+- Titlebar double-click to maximize/restore window.
+- Main window border and corner resizing support via native Win32 `WM_NCCALCSIZE` and `WM_NCHITTEST` message routing combined with `window.winResize()` edge strip triggers (`DashboardWindow.cs`, `bridge.js`, `style.css`).
+- Native window geometry persistence: saves main window position (`WindowX`, `WindowY`), size (`WindowWidth`, `WindowHeight`), and maximized state (`WindowMaximized`) on move/resize in `ScanConfiguration.cs` and restores them on launch.
+- Universal modal dialog window manager (`ui_modals.js`): makes every popup screen (`settings-modal`, `forensics-modal`, `sensitivity-modal`, `confirm-modal`, etc.) smoothly draggable by its header, resizable via 8 border/corner handles, maximizable/restorable via header double-click or maximize button, with custom geometry persisted in config for future sessions.
+- Defined fallback `--safe: #6bb700;` variable in `:root` CSS, preventing missing styling across activity events and badges (Rank 7).
+- Added `role="button"` and keyboard navigation (`tabindex="0"`, `Enter` / `Space` activation) to stat cards (issue 32) and titlebar controls (Rank 3).
+- Added accessible `aria-label` attributes to sensitivity rubric weight buttons, toggles, and threshold sliders (`ui_engines.js`, Rank 6).
+
+### Changed
+- Brightened overall app background and surface theme from pitch black (`#0f111a` / `#12141d`) to a modern, legible dark slate palette (`--bg: #1b2030`, `--surface-low: #1f2436`, `--surface-mid: #272e45`, `--surface-high: #303955`, issue 33).
+- Redesigned real-time protection control in dashboard header into a unified, intuitive ON/OFF toggle switch (`.protection-toggle-btn`) displaying clear "Protection Active" / "Protection Disabled" state and removed redundant "Monitoring Active" badge that wasted screen space (issue 31).
+- Renamed stat cards: "Blocked Threats" -> "Malicious", "Spam Filtered" -> "Spam", "Clean Emails" -> "Clean", and restyled them to be slightly smaller and visually recognizable as interactive filter buttons with hover elevation and active bottom border indicators (issue 32).
+- Lowered STA COM coordinator mutex acquisition timeout from 30,000ms to 5,000ms (`OutlookStaCoordinator.cs`) so that lock contention recovers rapidly rather than freezing the application thread for 30s.
+
+### Fixed
+- Fixed app freeze/hang where background Outlook `-Embedding` processes hung on OST locks or modal dialogs (issue 34 & Rank 8): `ComUtils.CreateOrGetOutlook()` in `ComRef.cs` now retries `GetActiveObject` when `OUTLOOK.EXE` is already running rather than spawning duplicate out-of-process COM servers via `CoCreateInstance(CLSCTX_LOCAL_SERVER)` that lock MAPI OST data stores.
+- Fixed duplicate scanning and scan hang in `OutlookMapiService.cs`: deduplicated emails by Message-ID (`mid:{item.MessageId}`) in `RunSweepAsync` and `ProcessSingleEmail`, ensuring identical messages are never re-crawled, and properly released COM references on connection errors.
+- Fixed IPC response schema mismatches (Rank 1 & 2): updated `DashboardWindow.cs` to return `{ ok, success }` for `release-email` and `quarantine-email`, robust multi-field envelopes (`items`, `rows`, `total`, `results`) for `search-vault`, and supported `kind` filtering in `get-events`.
+- Fixed frontend response parsers in `ui_main.js`, `ui_search.js`, `ui_activity.js`, and `ui_list.js` to accept both direct array and nested envelope formats, and handle polymorphic property keys (`fromFolder` / `from_folder`, `toFolder` / `to_folder`, `timestamp` / `ts`).
+---
+
 ## [1.0.6] - 2026-10-27
 
 ### Added

@@ -17,8 +17,8 @@
         const scoreStr = event.score !== null && event.score !== undefined ? ` (Score: ${event.score}/100)` : '';
         const subj = escapeHtml(event.subject || '(No Subject)');
         const sender = escapeHtml(event.sender || 'Unknown Sender');
-        const fromF = escapeHtml(event.from_folder || 'Inbox');
-        const toF = escapeHtml(event.to_folder || 'Quarantine');
+        const fromF = escapeHtml(event.from_folder || event.fromFolder || 'Inbox');
+        const toF = escapeHtml(event.to_folder || event.toFolder || 'Quarantine');
 
         switch (event.kind) {
             case 'quarantine':
@@ -52,7 +52,8 @@
         try {
             const opts = { limit: 100 };
             if (filter !== 'all') opts.kind = filter;
-            const events = await window.securityApi.getEvents(opts);
+            const res = await window.securityApi.getEvents(opts);
+            const events = Array.isArray(res) ? res : (res && (res.events || res.items || res.rows)) || [];
 
             if (!events || events.length === 0) {
                 listEl.innerHTML = '<div style="color: var(--muted); padding: 30px; text-align: center;">No security events recorded yet.</div>';
@@ -67,7 +68,7 @@
 
                 let kindColor = 'var(--accent)';
                 if (ev.kind === 'quarantine') kindColor = 'var(--danger)';
-                else if (ev.kind === 'release' || ev.kind === 'trust') kindColor = 'var(--safe)';
+                else if (ev.kind === 'release' || ev.kind === 'trust') kindColor = 'var(--safe, #6bb700)';
 
                 const sentenceHtml = formatEventSentence(ev);
                 const showActionButtons = ev.kind === 'quarantine' || ev.kind === 'label';
@@ -77,7 +78,7 @@
                         <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${kindColor}; margin-top: 6px; flex-shrink: 0;"></span>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <div style="font-size: 0.85rem; color: var(--text); line-height: 1.4;">${sentenceHtml}</div>
-                            <span style="font-size: 0.7rem; color: var(--muted);">${escapeHtml(ev.ts || '')}</span>
+                            <span style="font-size: 0.7rem; color: var(--muted);">${escapeHtml(ev.ts || ev.timestamp || '')}</span>
                         </div>
                     </div>
                     ${showActionButtons ? `
@@ -96,8 +97,9 @@
                             releaseBtn.textContent = 'Releasing...';
                             try {
                                 await window.securityApi.releaseEmail({
-                                    entryId: ev.entry_id,
-                                    fingerprint: ev.message_key
+                                    entryId: ev.entry_id || ev.entryId,
+                                    fingerprint: ev.message_key || ev.messageKey || ev.fingerprint
+                                });
                                 });
                                 releaseBtn.textContent = 'Released';
                                 setTimeout(() => loadActivityFeed(), 800);

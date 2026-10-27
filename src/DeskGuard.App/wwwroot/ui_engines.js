@@ -1,4 +1,4 @@
-﻿window.escapeHtml = window.escapeHtml || function(str) {
+window.escapeHtml = window.escapeHtml || function(str) {
     if (str === null || str === undefined) return '';
     if (typeof str !== 'string') str = String(str);
     return str
@@ -106,7 +106,7 @@ SecurityUI.Engines = (function() {
         const total = Object.keys(currentWeights).reduce((a, k) => a + (currentToggles[k] ? currentWeights[k] : 0), 0);
         container.innerHTML = Object.keys(labels).map(key => {
             const val = currentWeights[key] || 0; const en = !!currentToggles[key];
-            return `<div class="sensitivity-row" data-tip="${window.escapeHTML(tips[key])}" style="display:flex; align-items:center; gap:15px; opacity:${en?1:0.4}; cursor:help;"><input type="checkbox" class="w-tog" data-key="${key}" ${en?'checked':''}> <div style="flex:1.2; font-size:0.75rem; font-weight:bold;">${labels[key]}</div> <input type="range" class="w-slider" data-key="${key}" min="1" max="100" value="${val}" ${en?'':'disabled'} style="flex:2; cursor:pointer;"> <div style="display:flex; align-items:center; gap:8px;"> <button class="btn-step btn-minus" data-key="${key}">-</button> <div style="width:52px; text-align:center; font-family:monospace; color:var(--accent); font-weight:900;" title="Most points this rule can take off">-${val} pts</div> <button class="btn-step btn-plus" data-key="${key}">+</button> </div> </div>`;
+            return `<div class="sensitivity-row" data-tip="${window.escapeHTML(tips[key])}" style="display:flex; align-items:center; gap:15px; opacity:${en?1:0.4}; cursor:help;"><input type="checkbox" class="w-tog" data-key="${key}" ${en?'checked':''} aria-label="Enable ${labels[key]} rule"> <div style="flex:1.2; font-size:0.75rem; font-weight:bold;">${labels[key]}</div> <input type="range" class="w-slider" data-key="${key}" min="1" max="100" value="${val}" ${en?'':'disabled'} aria-label="${labels[key]} weight" style="flex:2; cursor:pointer;"> <div style="display:flex; align-items:center; gap:8px;"> <button type="button" class="btn-step btn-minus" data-key="${key}" aria-label="Decrease ${labels[key]} weight" title="Decrease weight">-</button> <div style="width:52px; text-align:center; font-family:monospace; color:var(--accent); font-weight:900;" title="Most points this rule can take off">-${val} pts</div> <button type="button" class="btn-step btn-plus" data-key="${key}" aria-label="Increase ${labels[key]} weight" title="Increase weight">+</button> </div> </div>`;
         }).join('') + `<div style="text-align:right; font-size:0.72rem; color:var(--muted);">Active rules total: <b style="color:${total === 100 ? 'var(--ok)' : 'var(--danger)'}">${total} / 100 points</b>. An email that fails every active rule scores 0%.</div>`;
 
         container.querySelectorAll('.sensitivity-row').forEach(attachTooltip);
@@ -131,7 +131,7 @@ SecurityUI.Engines = (function() {
         box.innerHTML = zones + ['malicious', 'spam', 'suspicious'].map(key => `
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
                 <div style="flex:1.6; font-size:0.72rem; font-weight:700; color:${thresholdInfo[key].color};">${thresholdInfo[key].title}</div>
-                <input type="range" class="t-slider" data-key="${key}" min="0" max="100" value="${thresholds[key]}" style="flex:2; cursor:pointer;">
+                <input type="range" class="t-slider" data-key="${key}" min="0" max="100" value="${thresholds[key]}" aria-label="${thresholdInfo[key].title} threshold slider" style="flex:2; cursor:pointer;">
                 <div style="width:44px; text-align:right; font-family:monospace; font-weight:900; color:${thresholdInfo[key].color};">${thresholds[key]}%</div>
             </div>`).join('') + `
             <div style="font-size:0.72rem; color:var(--muted); margin-top:6px;">Emails above ${thresholds.suspicious}% are Safe and never touched.</div>`;

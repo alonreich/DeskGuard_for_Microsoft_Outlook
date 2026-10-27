@@ -64,8 +64,8 @@
         currentSearchState.loading = true;
         try {
             const result = await window.securityApi.searchVault(params);
-            const total = result.total || 0;
-            const rows = result.rows || [];
+            const total = (result && (result.total ?? (result.results && result.results.total))) || 0;
+            const rows = (result && (result.rows || result.items || (result.results && result.results.rows))) || [];
 
             const statsEl = document.getElementById('vault-search-stats');
             if (statsEl) {

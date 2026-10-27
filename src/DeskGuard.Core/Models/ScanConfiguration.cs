@@ -26,6 +26,12 @@ public sealed class ScanConfiguration
     public string SpamDestination { get; set; } = "quarantine"; // "quarantine" or "junk"
     public bool LabelInOutlook { get; set; } = true;
     public string VtKey { get; set; } = string.Empty;
+    public int WindowX { get; set; } = -1;
+    public int WindowY { get; set; } = -1;
+    public int WindowWidth { get; set; } = 1500;
+    public int WindowHeight { get; set; } = 900;
+    public bool WindowMaximized { get; set; } = false;
+    public Dictionary<string, string> ModalStates { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public static ScanConfiguration Load(string filePath)
     {

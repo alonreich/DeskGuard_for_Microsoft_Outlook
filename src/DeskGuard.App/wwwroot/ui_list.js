@@ -1,4 +1,4 @@
-﻿window.escapeHtml = window.escapeHtml || function(str) {
+window.escapeHtml = window.escapeHtml || function(str) {
     if (str === null || str === undefined) return '';
     if (typeof str !== 'string') str = String(str);
     return str
@@ -628,7 +628,7 @@ window.releaseIncident = async (entryId, fingerprint, trustSenderAddress) => {
             ...(window.AppState.stats.spam || [])
         ].find(i => i.entryId === entryId || (fingerprint && i.fingerprint === fingerprint));
         const res = await window.securityApi.releaseEmail({ entryId, fingerprint, storeId: known ? known.storeId : undefined, targetFolder: 6 });
-        if (res && res.success) {
+        if (res && (res.success || res.ok)) {
             let trusted = false;
             if (trustSenderAddress && typeof window.trustSender === 'function') {
                 try { trusted = await window.trustSender(trustSenderAddress); } catch (e) {}
@@ -666,7 +666,7 @@ window.quarantineIncident = async (entryId, fingerprint) => {
     }
     try {
         const res = await window.securityApi.quarantineEmail({ entryId, fingerprint, targetFolder: 23 });
-        if (res && res.success) {
+        if (res && (res.success || res.ok)) {
             const panel = document.getElementById('detail-panel');
             if (panel) {
                 panel.innerHTML = `
@@ -888,7 +888,11 @@ window.verifyCurrentList = async () => {
 window.deleteIncident = (id) => {
     window.showConfirm("Delete Email", "This will permanently delete this email from Outlook. Proceed?", "DELETE", async () => {
         try {
-            await window.securityApi.deleteEmail({ entryIds: [id] });
+            const res = await window.securityApi.deleteEmail({ entryId: id, entryIds: [id] });
+            if (res && res.ok === false && res.success === false) {
+                if (typeof window.showNotification === "function") window.showNotification("Delete failed: Item could not be deleted from Outlook.", true);
+                return;
+            }
 
             // Remove from AppState.stats
             let deletedCat = null;

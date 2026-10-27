@@ -55,6 +55,8 @@
     window.winMinimize = () => invoke('window-minimize');
     window.winMaximize = () => invoke('window-maximize');
     window.winClose = () => invoke('window-hide');
+    window.winDrag = () => invoke('window-drag');
+    window.winResize = (edge) => invoke('window-resize', { edge });
 
     window.securityApi = {
         getStats: () => invoke('get-stats'),
@@ -108,6 +110,8 @@
         setScanModes: data => invoke('set-scan-modes', data),
         getEvents: opts => invoke('get-events', opts),
         scoreEmailWhatIf: data => invoke('score-what-if', data),
-        trustSender: sender => invoke('trust-sender', sender)
+        trustSender: sender => invoke('trust-sender', sender),
+        saveModalConfig: data => invoke('save-modal-config', data),
+        getModalConfig: id => invoke('get-modal-config', { id })
     };
 })();

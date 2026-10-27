@@ -476,7 +476,7 @@ window.showActionToast = function(data) {
         undoBtn.disabled = trustBtn.disabled = true;
         why.textContent = 'Moving back to Inbox…';
         const res = await api.releaseEmail({ entryId: data.entryId, fingerprint: data.fingerprint, storeId: data.storeId, subject: data.subject, targetFolder: 6 });
-        if (!res || !res.success) {
+        if (!res || (!res.success && !res.ok)) {
             why.textContent = `Could not move it back: ${(res && res.error) || 'unknown error'}.`;
             undoBtn.disabled = trustBtn.disabled = false;
             return;
@@ -520,15 +520,16 @@ window.toggleProtectionPower = async function() {
 window.updatePowerButtonUI = function(enabled) {
     const btn = document.getElementById('dashboard-power-btn');
     const text = document.getElementById('dashboard-power-text');
-    if (!btn || !text) return;
+    if (!btn) return;
+    btn.setAttribute('aria-checked', enabled ? 'true' : 'false');
     if (enabled) {
-        btn.className = 'dashboard-power-btn active';
-        text.textContent = 'Protection ON';
-        btn.title = 'Click to Turn Off Mailbox Protection';
+        btn.className = 'protection-toggle-btn active';
+        if (text) text.textContent = 'Protection Active';
+        btn.title = 'Real-Time Mailbox Protection is Active. Click to turn off.';
     } else {
-        btn.className = 'dashboard-power-btn inactive';
-        text.textContent = 'Protection OFF';
-        btn.title = 'Click to Turn On Mailbox Protection';
+        btn.className = 'protection-toggle-btn inactive';
+        if (text) text.textContent = 'Protection Disabled';
+        btn.title = 'Real-Time Mailbox Protection is Disabled. Click to turn on.';
     }
 };
 
@@ -749,12 +750,13 @@ window.executeVaultSearch = async function() {
             limit: 500
         });
 
-        if (res && res.ok && res.results) {
-            const rows = res.results.rows || [];
+        if (res && (res.ok || res.success)) {
+            const rows = (res.results && res.results.rows) || res.rows || res.items || [];
+            const total = (res.results && res.results.total) ?? res.total ?? rows.length;
             window.renderList(rows, category, false);
             const titleEl = document.getElementById('current-list-title');
             if (titleEl) {
-                titleEl.textContent = `Vault Search (${res.results.total} matching)`;
+                titleEl.textContent = `Vault Search (${total} matching)`;
             }
         }
     } catch (err) {
@@ -813,8 +815,9 @@ function initVaultSearchToolbar() {
                 if (val.length >= 1 && datalist) {
                     try {
                         const res = await api.getSenderSuggestions(val);
-                        if (res && res.ok && Array.isArray(res.suggestions)) {
-                            datalist.innerHTML = res.suggestions
+                        const list = Array.isArray(res) ? res : (res && (res.suggestions || res.items)) || [];
+                        if (list.length > 0) {
+                            datalist.innerHTML = list
                                 .map(s => `<option value="${window.escapeHtml(s)}"></option>`)
                                 .join('');
                         }
@@ -834,4 +837,44 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initVaultSearchToolbar);
 } else {
     initVaultSearchToolbar();
+}
+
+
+function initTitlebarDrag() {
+    const titlebar = document.getElementById('app-titlebar') || document.querySelector('.titlebar');
+    if (titlebar) {
+        titlebar.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.titlebar-controls') || e.target.closest('button')) return;
+            if (e.button === 0 && window.winDrag) {
+                window.winDrag();
+            }
+        });
+        titlebar.addEventListener('dblclick', (e) => {
+            if (e.target.closest('.titlebar-controls') || e.target.closest('button')) return;
+            if (window.winMaximize) {
+                window.winMaximize();
+            }
+        });
+    }
+}
+
+function initStatCardsKeyboard() {
+    document.querySelectorAll('.stat-card').forEach(card => {
+        card.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                card.click();
+            }
+        });
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        initTitlebarDrag();
+        initStatCardsKeyboard();
+    });
+} else {
+    initTitlebarDrag();
+    initStatCardsKeyboard();
 }

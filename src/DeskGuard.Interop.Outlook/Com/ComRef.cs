@@ -88,6 +88,24 @@ public static partial class ComUtils
         object? active = GetActiveObject("Outlook.Application");
         if (active != null) return active;
 
+        // If OUTLOOK.EXE is already running in the current user session, do NOT call CoCreateInstance.
+        // Spawning a secondary OUTLOOK.EXE -Embedding instance while Outlook is active causes MAPI store
+        // OST data locks, modal COM contention, and indefinite hanging of the STA coordinator.
+        try
+        {
+            if (System.Diagnostics.Process.GetProcessesByName("OUTLOOK").Length > 0)
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    Thread.Sleep(200);
+                    active = GetActiveObject("Outlook.Application");
+                    if (active != null) return active;
+                }
+                return null;
+            }
+        }
+        catch { }
+
         int hr = CLSIDFromProgID("Outlook.Application", out Guid clsid);
         if (hr < 0) return null;
 
