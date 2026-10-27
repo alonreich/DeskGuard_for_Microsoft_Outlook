@@ -133,6 +133,7 @@ public sealed class OutlookActionsService
         if (parent == null) return null;
 
         Folders? folders = null;
+        bool returningParent = false;
         try
         {
             folders = parent.Folders;
@@ -147,16 +148,20 @@ public sealed class OutlookActionsService
                 ComUtils.Release(f);
             }
 
-            return folders.Add(subfolderName, OlDefaultFolders.olFolderInbox);
+            return folders.Add(subfolderName, Type.Missing);
         }
         catch
         {
+            returningParent = true;
             return parent;
         }
         finally
         {
             ComUtils.Release(folders);
-            ComUtils.Release(parent);
+            if (!returningParent)
+            {
+                ComUtils.Release(parent);
+            }
         }
     }
 

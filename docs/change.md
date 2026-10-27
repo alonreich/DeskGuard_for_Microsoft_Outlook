@@ -25,6 +25,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.8] - 2026-10-27
+
+### Added
+- Decoupled SQLite WAL reader-writer architecture in `VaultRepository`: dedicated `_readConnection` alongside primary `_connection` with independent synchronization roots (`_readSyncRoot`, `_writeSyncRoot`), permitting simultaneous background STA writes and UI/ThreadPool search, stats, and duplicate queries without contention.
+- Reliable live mail retry queue (`_retryQueue`) and `DrainRetryQueue()` on `IOutlookMapiService` and `OutlookMapiService`, ensuring incoming live emails are never permanently lost if transiently deferred.
+- Comprehensive concurrent read/write test `ConcurrentReadsAndWrites_ExecuteSimultaneouslyWithoutBlocking` in `VaultRepositoryTests.cs`.
+- Comprehensive atomic configuration persistence test `ScanConfiguration_AtomicSaveAndLoad_MaintainsIntegrity` in `UnitTest1.cs`.
+
+### Changed
+- `OutlookStaCoordinator.ExecuteJobWithRetry`: Priority-scoped circuit breaker trips so that background batch scans (`P2` sweeps, `P3` duplicate detection) cannot block real-time `P0` incoming mail ingestion or `P1` interactive user operations.
+- `DashboardWindow.cs`: Offloaded synchronous heavy vault operations (`scan-duplicates` containing `FindDuplicates` and `SaveDuplicates`, `trust-sender`, and `app-reset`) from the UI STA thread into background `Task.Run` workers, preventing UI hangs and WebView2 message pump freezes.
+- `DeploymentLifecycle.cs`: Made cryptographic `update.json` manifest verification mandatory in `RunInstallWorkerDirect`, eliminating insecure installation fallback that allowed unverified binary execution under elevated privileges.
+
+### Fixed
+- Fixed SQLite database concurrency lock contention where UI queries blocked STA message processing in `VaultRepository.cs`, `VaultRepository.Search.cs`, and `VaultRepository.Duplicates.cs`.
+- Fixed global circuit breaker dropping incoming emails in `OutlookStaCoordinator.cs` and `OutlookMapiService.cs` when background sweeps experience COM busy timeouts.
+- Fixed COM RCW use-after-free and folder type conversion failure in `OutlookActionsService.GetQuarantineSubfolder`: prevented releasing parent folder when returning it on subfolder creation error, and replaced invalid enum parameter with `Type.Missing`.
+- Fixed COM RCW handle leak in `OutlookLiveWatcher.RegisterWatchers`: wrapped `ItemAdd` event handler in `try/finally` with `ComUtils.Release(item)` to release unmanaged COM references immediately upon mail arrival.
+- Fixed non-atomic file writes in `ScanConfiguration.Save`: implemented atomic write-and-replace using temporary staging file and `File.Move(..., overwrite: true)` with validation in `ScanConfiguration.Load`.
+---
+
 ## [1.0.7] - 2026-10-27
 
 ### Added

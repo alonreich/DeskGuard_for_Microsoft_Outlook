@@ -75,4 +75,34 @@ public sealed class ConcurrencyAndParserTests
         Assert.True(queue.TryDequeue(out string? fifth));
         Assert.Equal("P3-Item", fifth);
     }
+
+    [Fact]
+    public void ScanConfiguration_AtomicSaveAndLoad_MaintainsIntegrity()
+    {
+        string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"DeskGuard_CfgTest_{System.Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempDir);
+        string cfgFile = System.IO.Path.Combine(tempDir, "config.json");
+
+        try
+        {
+            var config = new DeskGuard.Core.Models.ScanConfiguration
+            {
+                Enabled = true,
+                ScanningSpeed = 75,
+                SpamDestination = "junk"
+            };
+
+            config.Save(cfgFile);
+            Assert.True(System.IO.File.Exists(cfgFile));
+
+            var loaded = DeskGuard.Core.Models.ScanConfiguration.Load(cfgFile);
+            Assert.Equal(75, loaded.ScanningSpeed);
+            Assert.Equal("junk", loaded.SpamDestination);
+            Assert.True(loaded.Enabled);
+        }
+        finally
+        {
+            try { System.IO.Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
 }

@@ -15,7 +15,7 @@ public sealed partial class VaultRepository
             return (0, false);
         }
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             List<(long RowId, string EntryId, string MessageId)> rows = [];
             using (SqliteCommand cmd = _connection!.CreateCommand())
@@ -89,7 +89,7 @@ public sealed partial class VaultRepository
             return;
         }
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             try
             {
@@ -124,7 +124,7 @@ public sealed partial class VaultRepository
         EnsureReady();
         if (string.IsNullOrWhiteSpace(entryId) && string.IsNullOrWhiteSpace(fingerprint)) return false;
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             try
             {
@@ -162,7 +162,7 @@ public sealed partial class VaultRepository
         EnsureReady();
         if (string.IsNullOrWhiteSpace(id)) return false;
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             try
             {
@@ -192,7 +192,7 @@ public sealed partial class VaultRepository
         EnsureReady();
         if (entryIds == null) return;
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             using SqliteTransaction tx = _connection!.BeginTransaction();
             try
@@ -225,7 +225,7 @@ public sealed partial class VaultRepository
         EnsureReady();
         if (entryIds == null) return;
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             using SqliteTransaction tx = _connection!.BeginTransaction();
             try

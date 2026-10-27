@@ -36,6 +36,10 @@ src/DeskGuard.Data/
   PRAGMA temp_store = MEMORY;
   PRAGMA busy_timeout = 5000;
   ```
+- **Decoupled Connection Architecture**:
+  - `_connection`: Dedicated write connection used for schema migrations and mutating operations (`InsertEmail`, `InsertIndexed`, `AddProcessed`, `NuclearReset`, `SaveDuplicates`, `ReconcileFolder`), synchronized via `_writeSyncRoot`.
+  - `_readConnection`: Dedicated read-only connection used for querying (`SearchEmails`, `GetStats`, `FindDuplicates`, `GetEvents`), synchronized via `_readSyncRoot`.
+  - Under SQLite WAL mode, readers and writers operate concurrently without lock contention or `SQLITE_BUSY` blocking.
 
 ---
 

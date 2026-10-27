@@ -40,8 +40,11 @@ public sealed class ScanConfiguration
             if (File.Exists(filePath))
             {
                 string json = File.ReadAllText(filePath);
-                var cfg = JsonSerializer.Deserialize(json, DeskGuardJsonContext.Default.ScanConfiguration);
-                if (cfg != null) return cfg;
+                if (!string.IsNullOrWhiteSpace(json))
+                {
+                    var cfg = JsonSerializer.Deserialize(json, DeskGuardJsonContext.Default.ScanConfiguration);
+                    if (cfg != null) return cfg;
+                }
             }
         }
         catch { }
@@ -51,14 +54,24 @@ public sealed class ScanConfiguration
 
     public void Save(string filePath)
     {
+        string? tempPath = null;
         try
         {
             string? dir = Path.GetDirectoryName(filePath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             string json = JsonSerializer.Serialize(this, DeskGuardJsonContext.Default.ScanConfiguration);
-            File.WriteAllText(filePath, json);
+
+            tempPath = Path.Combine(dir ?? ".", $"{Path.GetFileName(filePath)}.{Guid.NewGuid():N}.tmp");
+            File.WriteAllText(tempPath, json);
+            File.Move(tempPath, filePath, overwrite: true);
         }
-        catch { }
+        catch
+        {
+            if (tempPath != null && File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
+        }
     }
 }
 

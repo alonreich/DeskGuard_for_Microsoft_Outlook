@@ -62,4 +62,5 @@ public interface IOutlookMapiService : IDisposable
     Task<DeleteResult> DeleteEmailsAsync(IEnumerable<string> entryIds, Dictionary<string, string>? storeIds = null, CancellationToken cancellationToken = default);
     Task<bool> OpenInOutlookAsync(string entryId, string storeId, string? altEntryId = null, string? messageId = null, CancellationToken cancellationToken = default);
     Task<ExistenceCheckResult> CheckExistenceAsync(IEnumerable<EmailRecord> items, CancellationToken cancellationToken = default);
+    void DrainRetryQueue();
 }

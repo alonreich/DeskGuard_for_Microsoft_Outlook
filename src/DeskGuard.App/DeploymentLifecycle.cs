@@ -174,28 +174,19 @@ internal static class DeploymentLifecycle
     {
         Console.WriteLine($"[Deployment] Installing to: {targetDir}");
 
-        bool hasManifest = File.Exists(Path.Combine(sourceDir, "update.json"));
-        Dictionary<string, string> filesToInstall;
+        string manifestPath = Path.Combine(sourceDir, "update.json");
+        if (!File.Exists(manifestPath))
+        {
+            Console.Error.WriteLine("[Deployment] Installation aborted: update.json manifest is missing. Cryptographic manifest is required.");
+            return 2;
+        }
 
-        if (hasManifest)
+        if (!ValidatePayloadIntegrity(sourceDir, out Dictionary<string, string> filesToInstall))
         {
-            if (!ValidatePayloadIntegrity(sourceDir, out filesToInstall))
-            {
-                Console.Error.WriteLine("[Deployment] Cryptographic verification failed! Installation aborted.");
-                return 2;
-            }
-            Console.WriteLine($"[Deployment] Verified {filesToInstall.Count} payload files against cryptographic manifest.");
+            Console.Error.WriteLine("[Deployment] Cryptographic verification failed! Installation aborted.");
+            return 2;
         }
-        else
-        {
-            filesToInstall = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
-            {
-                string relative = Path.GetRelativePath(sourceDir, file);
-                if (relative.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
-                filesToInstall[relative] = file;
-            }
-        }
+        Console.WriteLine($"[Deployment] Verified {filesToInstall.Count} payload files against cryptographic manifest.");
 
         TerminateRunningAppInstances(targetDir);
 
@@ -208,14 +199,11 @@ internal static class DeploymentLifecycle
             CopyFileWithRetry(sourceFile, destFile);
         }
 
-        if (hasManifest)
+        try
         {
-            try
-            {
-                CopyFileWithRetry(Path.Combine(sourceDir, "update.json"), Path.Combine(targetDir, "update.json"));
-            }
-            catch { }
+            CopyFileWithRetry(manifestPath, Path.Combine(targetDir, "update.json"));
         }
+        catch { }
 
         string targetExe = Path.Combine(targetDir, DeploymentFootprint.AppExeName);
 

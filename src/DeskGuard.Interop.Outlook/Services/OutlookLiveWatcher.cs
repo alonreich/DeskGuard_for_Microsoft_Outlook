@@ -65,6 +65,10 @@ public sealed class OutlookLiveWatcher : IDisposable
                                     }
                                 }
                                 catch { }
+                                finally
+                                {
+                                    ComUtils.Release(item);
+                                }
                             };
 
                             items.ItemAdd += handler;

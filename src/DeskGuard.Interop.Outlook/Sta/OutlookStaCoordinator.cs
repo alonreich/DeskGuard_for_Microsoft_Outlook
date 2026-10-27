@@ -28,6 +28,7 @@ public sealed partial class OutlookStaCoordinator : IDisposable
         public required Action SetResult { get; init; }
         public required Action<Exception> SetException { get; init; }
         public required string Tag { get; init; }
+        public required JobPriority Priority { get; init; }
         public CancellationToken CancellationToken { get; init; } = default;
     }
 
@@ -55,6 +56,7 @@ public sealed partial class OutlookStaCoordinator : IDisposable
             SetResult = () => tcs.TrySetResult(true),
             SetException = ex => tcs.TrySetException(ex),
             Tag = tag,
+            Priority = priority,
             CancellationToken = cancellationToken
         };
 
@@ -75,6 +77,7 @@ public sealed partial class OutlookStaCoordinator : IDisposable
             SetResult = () => tcs.TrySetResult(result),
             SetException = ex => tcs.TrySetException(ex),
             Tag = tag,
+            Priority = priority,
             CancellationToken = cancellationToken
         };
 
@@ -190,10 +193,18 @@ public sealed partial class OutlookStaCoordinator : IDisposable
         {
             if (DateTime.UtcNow < _circuitResetTime)
             {
-                job.SetException(new InvalidOperationException("Circuit Open: Outlook overloaded or unresponsive."));
-                return;
+                // Only throttle low priority background tasks (P2, P3).
+                // High-priority operations (P0 real-time arrival, P1 interactive user commands) must be attempted.
+                if (job.Priority >= JobPriority.P2)
+                {
+                    job.SetException(new InvalidOperationException("Circuit Open: Outlook overloaded or unresponsive."));
+                    return;
+                }
             }
-            _circuitOpen = false;
+            else
+            {
+                _circuitOpen = false;
+            }
         }
 
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, job.CancellationToken);

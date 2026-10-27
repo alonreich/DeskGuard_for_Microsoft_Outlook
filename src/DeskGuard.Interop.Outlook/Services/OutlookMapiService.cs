@@ -35,7 +35,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
     private readonly ConcurrentDictionary<string, byte> _userMovedFingerprints = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _processedFingerprints = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, int> _moveFailures = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<string> _retryQueue = [];
+    private readonly ConcurrentQueue<(string EntryId, string StoreId)> _retryQueue = new();
 
     public event Action<EmailRecord>? EmailScanned;
     public event Action<string>? LogProgress;
@@ -61,10 +61,21 @@ public sealed class OutlookMapiService : IOutlookMapiService
 
         _liveWatcher = new OutlookLiveWatcher(_coordinator, (entryId, storeId) =>
         {
-            _ = _coordinator.EnqueueAsync(ct =>
+            _ = Task.Run(async () =>
             {
-                ProcessSingleEmail(entryId, storeId, isLiveArrival: true);
-            }, JobPriority.P0, $"LiveMail:{entryId}");
+                try
+                {
+                    await _coordinator.EnqueueAsync(ct =>
+                    {
+                        ProcessSingleEmail(entryId, storeId, isLiveArrival: true);
+                    }, JobPriority.P0, $"LiveMail:{entryId}");
+                }
+                catch (Exception ex)
+                {
+                    LogProgress?.Invoke($"[OutlookMapiService] Failed to process live mail {entryId}: {ex.Message}. Queued for retry.");
+                    _retryQueue.Enqueue((entryId, storeId));
+                }
+            });
         });
     }
 
@@ -122,11 +133,34 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 {
                     LogProgress?.Invoke("Real-time live inbox monitoring registered successfully across all stores.");
                     EngineStatusChanged?.Invoke("Running", "Active");
+                    DrainRetryQueue();
                 }
                 return watching;
             }
             return false;
         }, JobPriority.P1, "StartLiveWatcher", cancellationToken);
+    }
+
+    public void DrainRetryQueue()
+    {
+        while (_retryQueue.TryDequeue(out var item))
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _coordinator.EnqueueAsync(ct =>
+                    {
+                        ProcessSingleEmail(item.EntryId, item.StoreId, isLiveArrival: true);
+                    }, JobPriority.P0, $"RetryLiveMail:{item.EntryId}");
+                }
+                catch (Exception ex)
+                {
+                    LogProgress?.Invoke($"[OutlookMapiService] Retry failed for {item.EntryId}: {ex.Message}");
+                    _retryQueue.Enqueue(item);
+                }
+            });
+        }
     }
 
     public Task StopLiveWatcherAsync()

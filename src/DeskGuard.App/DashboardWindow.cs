@@ -908,7 +908,7 @@ internal sealed partial class DashboardWindow : IDisposable
                     includeJunk = ijProp.GetBoolean();
                 }
 
-                var (vaultDups, indexedCount) = _vault.FindDuplicates(includeJunk);
+                var (vaultDups, indexedCount) = await Task.Run(() => _vault.FindDuplicates(includeJunk));
                 List<DuplicateItem> allDups;
                 int totalScanned;
 
@@ -924,7 +924,7 @@ internal sealed partial class DashboardWindow : IDisposable
                     totalScanned = dupRes.ScannedCount;
                 }
 
-                _vault.SaveDuplicates(allDups, "Finished");
+                await Task.Run(() => _vault.SaveDuplicates(allDups, "Finished"));
                 PostEvent("duplicate-update", new { status = "Finished", items = allDups, scanned = totalScanned, found = allDups.Count });
                 return new { ok = true, items = allDups, count = totalScanned };
 
@@ -996,21 +996,24 @@ internal sealed partial class DashboardWindow : IDisposable
                 string senderEmail = payload.GetString() ?? string.Empty;
                 if (!string.IsNullOrEmpty(senderEmail))
                 {
-                    _vault.AddProtected([senderEmail], "released");
+                    await Task.Run(() => _vault.AddProtected([senderEmail], "released"));
                 }
                 return new { ok = true };
 
             case "app-reset":
                 string resetMode = payload.ValueKind == JsonValueKind.String ? payload.GetString() ?? "safe" : "safe";
-                if (string.Equals(resetMode, "scorched", StringComparison.OrdinalIgnoreCase))
+                await Task.Run(() =>
                 {
-                    StartupManager.SetStartupEnabled(false);
-                    _vault.NuclearReset();
-                }
-                else
-                {
-                    _vault.ClearIncidents();
-                }
+                    if (string.Equals(resetMode, "scorched", StringComparison.OrdinalIgnoreCase))
+                    {
+                        StartupManager.SetStartupEnabled(false);
+                        _vault.NuclearReset();
+                    }
+                    else
+                    {
+                        _vault.ClearIncidents();
+                    }
+                });
                 return new { ok = true };
 
             default:

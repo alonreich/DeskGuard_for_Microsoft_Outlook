@@ -206,6 +206,10 @@ internal static partial class Program
                             tray.UpdateStatus("Standby (Waiting for Outlook)");
                         }
                     }
+                    else
+                    {
+                        mapiService.DrainRetryQueue();
+                    }
                 }
                 else if (!config.Enabled)
                 {

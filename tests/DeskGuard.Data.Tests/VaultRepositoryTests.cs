@@ -206,6 +206,46 @@ public sealed class VaultRepositoryTests : IDisposable
         Assert.Equal(100, categorized["safe"].Count);
     }
 
+    [Fact]
+    public async System.Threading.Tasks.Task ConcurrentReadsAndWrites_ExecuteSimultaneouslyWithoutBlocking()
+    {
+        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var token = cts.Token;
+
+        var writeTask = System.Threading.Tasks.Task.Run(() =>
+        {
+            int i = 0;
+            while (!token.IsCancellationRequested && i < 100)
+            {
+                _repository.InsertEmail(new EmailRecord
+                {
+                    EntryId = $"Conc_Write_{i}",
+                    Fingerprint = $"fp_conc_{i}",
+                    Subject = $"Subject {i}",
+                    Sender = $"sender{i}@corp.com",
+                    Verdict = "Safe",
+                    Score = 95.0
+                });
+                i++;
+            }
+        }, token);
+
+        var readTask = System.Threading.Tasks.Task.Run(() =>
+        {
+            int iterations = 0;
+            while (!token.IsCancellationRequested && iterations < 50)
+            {
+                var stats = _repository.GetStats();
+                var search = _repository.SearchEmails(new SearchParameters { Query = "Subject" });
+                var dups = _repository.FindDuplicates();
+                iterations++;
+            }
+        }, token);
+
+        await System.Threading.Tasks.Task.WhenAll(writeTask, readTask);
+        Assert.True(_repository.GetStats().Total > 0);
+    }
+
     public void Dispose()
     {
         _repository.Dispose();

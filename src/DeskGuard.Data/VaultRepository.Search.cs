@@ -52,7 +52,7 @@ public sealed partial class VaultRepository
             List<string> words = [];
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 cmd.CommandText = "SELECT term FROM emails_vocab WHERE term GLOB $glob ORDER BY doc DESC LIMIT 300";
                 cmd.Parameters.AddWithValue("$glob", t.ToLowerInvariant());
                 using SqliteDataReader r = cmd.ExecuteReader();
@@ -140,7 +140,7 @@ public sealed partial class VaultRepository
         EnsureReady();
         if (parameters == null) return new SearchResult();
 
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
@@ -228,7 +228,7 @@ public sealed partial class VaultRepository
 
                     try
                     {
-                        using SqliteCommand countCmd = _connection!.CreateCommand();
+                        using SqliteCommand countCmd = _readConnection!.CreateCommand();
                         countCmd.CommandText = $"SELECT COUNT(*) FROM emails_fts f JOIN emails e ON f.rowid = e.rowid WHERE {ftsWhere}";
                         for (int i = 0; i < ftsBindings.Count; i++)
                         {
@@ -236,7 +236,7 @@ public sealed partial class VaultRepository
                         }
                         int total = Convert.ToInt32(countCmd.ExecuteScalar());
 
-                        using SqliteCommand selectCmd = _connection.CreateCommand();
+                        using SqliteCommand selectCmd = _readConnection.CreateCommand();
                         selectCmd.CommandText = $"""
                             SELECT e.id, e.entry_id, e.store_id, e.fingerprint, e.subject, e.sender, e.recipient, e.cc,
                                    e.date, e.time, e.timestamp, e.body, e.headers, e.verdict, e.score, e.tier,
@@ -281,7 +281,7 @@ public sealed partial class VaultRepository
                 string rawWhere = $"WHERE {string.Join(" AND ", allConds)}";
                 string whereClause = ReplacePlaceholdersWithNamed(rawWhere, out List<string> likeParamNames);
 
-                using (SqliteCommand countCmd = _connection!.CreateCommand())
+                using (SqliteCommand countCmd = _readConnection!.CreateCommand())
                 {
                     countCmd.CommandText = $"SELECT COUNT(*) FROM emails e {whereClause}";
                     for (int i = 0; i < allBinds.Count; i++)
@@ -290,7 +290,7 @@ public sealed partial class VaultRepository
                     }
                     int total = Convert.ToInt32(countCmd.ExecuteScalar());
 
-                    using SqliteCommand selectCmd = _connection.CreateCommand();
+                    using SqliteCommand selectCmd = _readConnection.CreateCommand();
                     selectCmd.CommandText = $"""
                         SELECT id, entry_id, store_id, fingerprint, subject, sender, recipient, cc,
                                date, time, timestamp, body, headers, verdict, score, tier,

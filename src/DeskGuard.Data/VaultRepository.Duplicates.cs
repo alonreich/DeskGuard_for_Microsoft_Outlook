@@ -16,7 +16,7 @@ public sealed partial class VaultRepository
         AssertWritable();
         EnsureReady();
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             try
             {
@@ -45,11 +45,11 @@ public sealed partial class VaultRepository
     public (List<DuplicateItem> Items, string Status, string SavedAt) GetSavedDuplicates()
     {
         EnsureReady();
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 cmd.CommandText = "SELECT status, saved_at, items_json FROM duplicate_results WHERE id = 1";
                 using SqliteDataReader r = cmd.ExecuteReader();
                 if (r.Read())
@@ -84,13 +84,13 @@ public sealed partial class VaultRepository
     public (List<DuplicateItem> Items, int Indexed) FindDuplicates(bool includeJunk = false)
     {
         EnsureReady();
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
                 // Find main store (store with most items)
                 Dictionary<string, int> storeCounts = [];
-                using (SqliteCommand storeCmd = _connection!.CreateCommand())
+                using (SqliteCommand storeCmd = _readConnection!.CreateCommand())
                 {
                     storeCmd.CommandText = "SELECT COALESCE(store_id, '') AS s, COUNT(*) AS c FROM emails WHERE hidden = 0 GROUP BY s";
                     using SqliteDataReader r = storeCmd.ExecuteReader();
@@ -111,7 +111,7 @@ public sealed partial class VaultRepository
                 """;
 
                 List<RawDupRow> rows = [];
-                using (SqliteCommand cmd = _connection.CreateCommand())
+                using (SqliteCommand cmd = _readConnection.CreateCommand())
                 {
                     cmd.CommandText = sql;
                     using SqliteDataReader r = cmd.ExecuteReader();
@@ -215,7 +215,7 @@ public sealed partial class VaultRepository
                 }
 
                 int indexed = 0;
-                using (SqliteCommand countCmd = _connection.CreateCommand())
+                using (SqliteCommand countCmd = _readConnection.CreateCommand())
                 {
                     countCmd.CommandText = "SELECT COUNT(*) FROM emails WHERE hidden = 0";
                     indexed = Convert.ToInt32(countCmd.ExecuteScalar());

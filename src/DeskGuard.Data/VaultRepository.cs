@@ -15,7 +15,9 @@ using Microsoft.Data.Sqlite;
 public sealed partial class VaultRepository : IVaultRepository
 {
     private SqliteConnection? _connection;
-    private readonly object _syncRoot = new();
+    private SqliteConnection? _readConnection;
+    private readonly object _writeSyncRoot = new();
+    private readonly object _readSyncRoot = new();
     private bool _readOnly;
     private string? _dbPath;
 
@@ -36,44 +38,53 @@ public sealed partial class VaultRepository : IVaultRepository
 
     public void Initialize(string dbDir, bool readOnly = false)
     {
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
-            if (_connection != null) return;
-
-            _readOnly = readOnly;
-            if (!Directory.Exists(dbDir))
+            lock (_readSyncRoot)
             {
-                Directory.CreateDirectory(dbDir);
-            }
+                if (_connection != null || _readConnection != null) return;
 
-            _dbPath = Path.Combine(dbDir, "deskguard_vault.db");
+                _readOnly = readOnly;
+                if (!Directory.Exists(dbDir))
+                {
+                    Directory.CreateDirectory(dbDir);
+                }
 
-            if (_readOnly && !File.Exists(_dbPath))
-            {
-                return;
-            }
+                _dbPath = Path.Combine(dbDir, "deskguard_vault.db");
 
-            _connection = SqliteConnectionFactory.CreateConnection(_dbPath, readOnly);
+                if (_readOnly && !File.Exists(_dbPath))
+                {
+                    return;
+                }
 
-            if (!_readOnly)
-            {
-                VaultMigrationManager.InitializeAndMigrate(_connection, _dbPath);
-                PrepareStatements();
+                if (!_readOnly)
+                {
+                    _connection = SqliteConnectionFactory.CreateConnection(_dbPath, readOnly: false);
+                    VaultMigrationManager.InitializeAndMigrate(_connection, _dbPath);
+                    PrepareStatements();
+                    _readConnection = SqliteConnectionFactory.CreateConnection(_dbPath, readOnly: true);
+                }
+                else
+                {
+                    _readConnection = SqliteConnectionFactory.CreateConnection(_dbPath, readOnly: true);
+                    _connection = _readConnection;
+                }
             }
         }
     }
 
     private void EnsureReady()
     {
-        if (_connection == null)
+        if (_readConnection == null)
         {
             if (_readOnly && _dbPath != null && File.Exists(_dbPath))
             {
-                lock (_syncRoot)
+                lock (_readSyncRoot)
                 {
-                    if (_connection == null)
+                    if (_readConnection == null)
                     {
-                        _connection = SqliteConnectionFactory.CreateConnection(_dbPath, true);
+                        _readConnection = SqliteConnectionFactory.CreateConnection(_dbPath, true);
+                        _connection = _readConnection;
                     }
                 }
             }
@@ -89,6 +100,10 @@ public sealed partial class VaultRepository : IVaultRepository
         if (_readOnly)
         {
             throw new InvalidOperationException("VaultRepository is read-only in this process; send the write to the service.");
+        }
+        if (_connection == null)
+        {
+            throw new InvalidOperationException("VaultRepository is not initialized for writing.");
         }
     }
 
@@ -299,7 +314,7 @@ public sealed partial class VaultRepository : IVaultRepository
         EnsureReady();
         if (item == null) return;
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             try
             {
@@ -345,7 +360,7 @@ public sealed partial class VaultRepository : IVaultRepository
         EnsureReady();
         if (item == null) return;
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             try
             {
@@ -412,11 +427,11 @@ public sealed partial class VaultRepository : IVaultRepository
         EnsureReady();
         if (string.IsNullOrWhiteSpace(id)) return null;
 
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 cmd.CommandText = """
                     SELECT id, entry_id, store_id, fingerprint, subject, sender, recipient, cc,
                            date, time, timestamp, body, headers, verdict, score, tier,
@@ -446,11 +461,11 @@ public sealed partial class VaultRepository : IVaultRepository
         EnsureReady();
         List<string> result = [];
 
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 cmd.CommandText = "SELECT entry_id FROM emails WHERE hidden = 0";
                 using SqliteDataReader reader = cmd.ExecuteReader();
                 while (reader.Read())
@@ -470,11 +485,11 @@ public sealed partial class VaultRepository : IVaultRepository
     public int GetIndexCount()
     {
         EnsureReady();
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 cmd.CommandText = "SELECT COUNT(*) FROM emails WHERE hidden = 0";
                 return Convert.ToInt32(cmd.ExecuteScalar());
             }
@@ -488,7 +503,7 @@ public sealed partial class VaultRepository : IVaultRepository
         EnsureReady();
         if (keys == null) return;
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             using SqliteTransaction tx = _connection!.BeginTransaction();
             try
@@ -519,11 +534,11 @@ public sealed partial class VaultRepository : IVaultRepository
     {
         EnsureReady();
         List<string> result = [];
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 cmd.CommandText = "SELECT key FROM processed";
                 using SqliteDataReader reader = cmd.ExecuteReader();
                 while (reader.Read())
@@ -540,7 +555,7 @@ public sealed partial class VaultRepository : IVaultRepository
     {
         AssertWritable();
         EnsureReady();
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             try
             {
@@ -558,7 +573,7 @@ public sealed partial class VaultRepository : IVaultRepository
         EnsureReady();
         if (fingerprints == null) return;
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             using SqliteTransaction tx = _connection!.BeginTransaction();
             try
@@ -591,11 +606,11 @@ public sealed partial class VaultRepository : IVaultRepository
     {
         EnsureReady();
         List<string> result = [];
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 cmd.CommandText = "SELECT fingerprint FROM protected WHERE kind = $k";
                 cmd.Parameters.AddWithValue("$k", kind);
                 using SqliteDataReader reader = cmd.ExecuteReader();
@@ -613,7 +628,7 @@ public sealed partial class VaultRepository : IVaultRepository
     {
         AssertWritable();
         EnsureReady();
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             try
             {
@@ -629,7 +644,7 @@ public sealed partial class VaultRepository : IVaultRepository
     {
         AssertWritable();
         EnsureReady();
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             using SqliteTransaction tx = _connection!.BeginTransaction();
             try
@@ -651,7 +666,7 @@ public sealed partial class VaultRepository : IVaultRepository
     {
         AssertWritable();
         EnsureReady();
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             using SqliteTransaction tx = _connection!.BeginTransaction();
             try
@@ -675,7 +690,7 @@ public sealed partial class VaultRepository : IVaultRepository
         EnsureReady();
         if (ev == null) return null;
 
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
             try
             {
@@ -710,11 +725,11 @@ public sealed partial class VaultRepository : IVaultRepository
     {
         EnsureReady();
         List<SecurityEvent> list = [];
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 string sql = "SELECT id, ts, kind, message_key, entry_id, subject, sender, from_folder, to_folder, score, reasons_json FROM events";
                 if (!string.IsNullOrEmpty(kind))
                 {
@@ -757,11 +772,11 @@ public sealed partial class VaultRepository : IVaultRepository
     {
         EnsureReady();
         Dictionary<string, int> outMap = new(StringComparer.OrdinalIgnoreCase);
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 cmd.CommandText = "SELECT LOWER(sender) AS s, COUNT(*) AS c FROM emails WHERE sender LIKE '%@%' GROUP BY LOWER(sender)";
                 using SqliteDataReader r = cmd.ExecuteReader();
                 while (r.Read())
@@ -793,11 +808,11 @@ public sealed partial class VaultRepository : IVaultRepository
     {
         EnsureReady();
         List<string> result = [];
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 string pattern = $"%{LikeEscape(prefix.Trim())}%";
                 cmd.CommandText = """
                     SELECT DISTINCT sender
@@ -827,11 +842,11 @@ public sealed partial class VaultRepository : IVaultRepository
     {
         EnsureReady();
         EngineStats stats = new();
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
-                using SqliteCommand cmd = _connection!.CreateCommand();
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
                 cmd.CommandText = """
                     SELECT verdict, COUNT(*) AS c
                     FROM emails
@@ -871,13 +886,13 @@ public sealed partial class VaultRepository : IVaultRepository
             ["safe"] = []
         };
 
-        lock (_syncRoot)
+        lock (_readSyncRoot)
         {
             try
             {
                 foreach (string cat in result.Keys)
                 {
-                    using SqliteCommand cmd = _connection!.CreateCommand();
+                    using SqliteCommand cmd = _readConnection!.CreateCommand();
                     cmd.CommandText = """
                         SELECT id, entry_id, store_id, fingerprint, subject, sender, recipient, cc,
                                date, time, timestamp, body, headers, verdict, score, tier,
@@ -993,18 +1008,31 @@ public sealed partial class VaultRepository : IVaultRepository
 
     public void Close()
     {
-        lock (_syncRoot)
+        lock (_writeSyncRoot)
         {
-            _insertStmt?.Dispose();
-            _insertStmt = null;
-            _indexStmt?.Dispose();
-            _indexStmt = null;
-
-            if (_connection != null)
+            lock (_readSyncRoot)
             {
-                try { _connection.Close(); } catch { }
-                _connection.Dispose();
-                _connection = null;
+                _insertStmt?.Dispose();
+                _insertStmt = null;
+                _indexStmt?.Dispose();
+                _indexStmt = null;
+
+                if (_connection != null)
+                {
+                    try { _connection.Close(); } catch { }
+                    if (!ReferenceEquals(_connection, _readConnection))
+                    {
+                        _connection.Dispose();
+                    }
+                    _connection = null;
+                }
+
+                if (_readConnection != null)
+                {
+                    try { _readConnection.Close(); } catch { }
+                    _readConnection.Dispose();
+                    _readConnection = null;
+                }
             }
         }
     }
