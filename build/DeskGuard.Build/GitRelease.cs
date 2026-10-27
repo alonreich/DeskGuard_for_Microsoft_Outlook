@@ -93,7 +93,7 @@ internal static class GitRelease
         // Pattern to match unreleased section (anchored to start of line)
         Match unreleasedMatch = Regex.Match(
             content,
-            @"(?m)^##\s*\[Unreleased\]\s*\r?\n(?<notes>[\s\S]*?)(?=\r?\n---\r?\n\s*##\s*\[|\r?\n##\s*\[|$)",
+            @"(?m)^##\s*\[Unreleased\]\s*\r?\n(?<notes>[\s\S]*?)(?=\r?\n---\r?\n|\Z)",
             RegexOptions.IgnoreCase);
 
         string rawNotes = unreleasedMatch.Success ? unreleasedMatch.Groups["notes"].Value.Trim() : string.Empty;
@@ -157,7 +157,7 @@ internal static class GitRelease
 
             string updatedContent = Regex.Replace(
                 content,
-                @"(?m)^##\s*\[Unreleased\]\s*[\s\S]*?(?=\r?\n---\r?\n\s*##\s*\[|\r?\n##\s*\[|$)",
+                @"(?m)^##\s*\[Unreleased\]\s*[\s\S]*?(?=\r?\n---\r?\n|\Z)",
                 newReleaseBlock,
                 RegexOptions.IgnoreCase);
 
@@ -169,7 +169,7 @@ internal static class GitRelease
             targetVersion = $"{major}.{minor}.{patch}";
             Match latestBlockMatch = Regex.Match(
                 content,
-                @$"(?m)^##\s*\[{Regex.Escape(targetVersion)}\][^\r\n]*\r?\n(?<notes>[\s\S]*?)(?=\r?\n---\r?\n\s*##\s*\[|\r?\n##\s*\[|$)",
+                @$"(?m)^##\s*\[{Regex.Escape(targetVersion)}\][^\r\n]*\r?\n(?<notes>[\s\S]*?)(?=\r?\n---\r?\n|\Z)",
                 RegexOptions.IgnoreCase);
             finalNotes = latestBlockMatch.Success ? latestBlockMatch.Groups["notes"].Value.Trim() : $"DeskGuard release v{targetVersion}";
         }
