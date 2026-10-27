@@ -66,7 +66,13 @@
             <div id="tab-dashboard" class="tab-pane active">
                 <div class="header-area">
                     <h1>Security Dashboard</h1>
-                    <div id="engine-status" class="badge badge-safe">Monitoring Active</div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <button id="dashboard-power-btn" onclick="window.toggleProtectionPower()" class="dashboard-power-btn active" title="Toggle Real-Time Mailbox Protection">
+                            <span class="power-indicator-dot"></span>
+                            <span id="dashboard-power-text">Protection ON</span>
+                        </button>
+                        <div id="engine-status" class="badge badge-safe">Monitoring Active</div>
+                    </div>
                 </div>
 
                 <div class="dashboard-layout">
@@ -455,6 +461,7 @@
     <script src="ui_duplicates.js"></script>
     <script src="ui_search.js"></script>
     <script src="ui_activity.js"></script>
+    <script src="ui_reset.js"></script>
     <script src="ui_main.js"></script>
 </body>
 </html>

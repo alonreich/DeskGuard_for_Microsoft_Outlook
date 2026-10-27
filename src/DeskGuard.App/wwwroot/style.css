@@ -1,4 +1,4 @@
-﻿:root { 
+:root { 
     --bg: #0f111a; 
     --sidebar-bg: #161925;
     --card: #1c1f2e; 
@@ -358,4 +358,51 @@ label {
 .vault-search-item:hover {
     border-color: var(--accent) !important;
     background: var(--surface-high) !important;
+}
+
+
+/* Dashboard Protection Power Button */
+.dashboard-power-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+.dashboard-power-btn.active {
+    background: rgba(107, 183, 0, 0.15);
+    border: 1px solid var(--ok);
+    color: var(--ok);
+}
+.dashboard-power-btn.active:hover {
+    background: rgba(107, 183, 0, 0.25);
+    box-shadow: 0 0 12px rgba(107, 183, 0, 0.3);
+}
+.dashboard-power-btn.inactive {
+    background: rgba(241, 112, 123, 0.15);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+}
+.dashboard-power-btn.inactive:hover {
+    background: rgba(241, 112, 123, 0.25);
+    box-shadow: 0 0 12px rgba(241, 112, 123, 0.3);
+}
+.power-indicator-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.dashboard-power-btn.active .power-indicator-dot {
+    background-color: var(--ok);
+    box-shadow: 0 0 6px var(--ok);
+}
+.dashboard-power-btn.inactive .power-indicator-dot {
+    background-color: var(--danger);
+    box-shadow: 0 0 6px var(--danger);
 }

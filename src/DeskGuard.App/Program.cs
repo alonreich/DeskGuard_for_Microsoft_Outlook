@@ -69,16 +69,18 @@ internal static partial class Program
             "data");
         Directory.CreateDirectory(dataDir);
 
+        string configPath = Path.Combine(dataDir, "config.json");
+        ScanConfiguration config = ScanConfiguration.Load(configPath);
+
         using TrayIconController tray = new();
         tray.DataDirectory = dataDir;
-        tray.UpdateStatus("Starting up...");
+        tray.UpdateStatus(config.Enabled ? "Starting up..." : "Paused (Protection Disabled)");
         tray.ShowNotification(
             "DeskGuard for Microsoft Outlook",
             "DeskGuard is active and protecting your inbox in the background.\nRight-click this icon for options.");
 
         using VaultRepository vault = new(dataDir);
         using OutlookStaCoordinator coordinator = new();
-        ScanConfiguration config = new();
         using OutlookMapiService mapiService = new(coordinator, vault, config);
 
         using DashboardWindow dashboard = new(vault, mapiService, config);
@@ -168,7 +170,7 @@ internal static partial class Program
             try
             {
                 bool outlookRunning = Process.GetProcessesByName("OUTLOOK").Length > 0;
-                if (outlookRunning)
+                if (outlookRunning && config.Enabled)
                 {
                     if (!mapiService.IsWatching)
                     {
@@ -178,12 +180,35 @@ internal static partial class Program
                         {
                             tray.UpdateStatus("Active (Monitoring Inbox)");
                             tray.ShowNotification("DeskGuard Active", "Outlook connected. Real-time inbox protection is active.");
+
+                            if (config.HistoryScanEnabled)
+                            {
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        await mapiService.RunSweepAsync(DateTime.UtcNow.AddDays(-7), cts.Token);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Console.WriteLine($"[Startup Sweep] {ex.Message}");
+                                    }
+                                });
+                            }
                         }
                         else
                         {
                             tray.UpdateStatus("Standby (Waiting for Outlook)");
                         }
                     }
+                }
+                else if (!config.Enabled)
+                {
+                    if (mapiService.IsWatching)
+                    {
+                        await mapiService.StopLiveWatcherAsync();
+                    }
+                    tray.UpdateStatus("Paused (Protection Disabled)");
                 }
                 else
                 {

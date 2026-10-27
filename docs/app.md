@@ -43,9 +43,12 @@ src/DeskGuard.App/
 Communication between `DashboardWindow.cs` and `wwwroot/*.js` operates asynchronously over the WebView2 `WebMessageReceived` channel.
 
 ### 3.1 Frontend to Backend Commands
-JavaScript sends JSON messages via `window.bridge.send(action, payload)`:
-- `get-stats`: Fetches total counts, threat tallies, and engine health.
-- `get-history`: Retrieves paginated list of scanned emails with filter criteria.
+JavaScript sends JSON messages via `window.bridge.send(action, payload)` or `window.securityApi.*`:
+- `get-stats`: Fetches total counts, threat tallies, and categorized emails (`{ full, stats, counts }`).
+- `get-config`: Retrieves current scan configuration, engine weights, thresholds, and startup status.
+- `set-enabled`: Toggles real-time mailbox sentinel monitoring on/off.
+- `start-full-scan`: Dispatches background sweep of recent/historical emails.
+- `set-rubrics`: Updates scoring weights, engine toggles, and threshold percentages.
 - `quarantine-item`: Dispatches MAPI move to Quarantine folder.
 - `release-item`: Restores quarantined email back to Inbox.
 - `delete-item`: Soft/hard deletes targeted email records.

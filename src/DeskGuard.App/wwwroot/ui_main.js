@@ -1,4 +1,4 @@
-﻿window.escapeHtml = function(str) {
+window.escapeHtml = function(str) {
     if (str === null || str === undefined) return '';
     if (typeof str !== 'string') str = String(str);
     return str
@@ -21,7 +21,14 @@ window.AppState = {
     config: null,
     
     updateStats(data) {
-        if (data.full) this.stats = data.stats;
+        if (!data) return;
+        if (data.full && data.stats) {
+            this.stats = data.stats;
+        } else if (data.stats) {
+            this.stats = data.stats;
+        } else if (data.malicious || data.safe || data.suspicious || data.spam) {
+            this.stats = data;
+        }
         if (data.counts) this.counts = data.counts;
         this.renderDashboard(false);
     },
@@ -183,6 +190,9 @@ async function requestFullScan() {
         btn.disabled = true;
         await api.setEnabled(true);
         await api.setHistoryEnabled(true);
+        if (api.startFullScan) {
+            await api.startFullScan();
+        }
     });
 }
 
@@ -396,11 +406,51 @@ window.showActionToast = function(data) {
     trustBtn.onclick = () => release(true);
 };
 
+window.toggleProtectionPower = async function() {
+    const btn = document.getElementById('dashboard-power-btn');
+    const currentActive = btn ? btn.classList.contains('active') : true;
+    const newState = !currentActive;
+
+    if (btn) {
+        btn.disabled = true;
+        btn.style.opacity = '0.6';
+    }
+
+    try {
+        await api.setEnabled(newState);
+        window.updatePowerButtonUI(newState);
+    } catch (e) {
+        console.error('Failed to toggle protection:', e);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+        }
+    }
+};
+
+window.updatePowerButtonUI = function(enabled) {
+    const btn = document.getElementById('dashboard-power-btn');
+    const text = document.getElementById('dashboard-power-text');
+    if (!btn || !text) return;
+    if (enabled) {
+        btn.className = 'dashboard-power-btn active';
+        text.textContent = 'Protection ON';
+        btn.title = 'Click to Turn Off Mailbox Protection';
+    } else {
+        btn.className = 'dashboard-power-btn inactive';
+        text.textContent = 'Protection OFF';
+        btn.title = 'Click to Turn On Mailbox Protection';
+    }
+};
+
 api.onStatusSync(enabled => {
+    window.updatePowerButtonUI(enabled);
     const status = document.getElementById('engine-status');
     if (enabled) {
         status.className = 'badge badge-safe';
         status.textContent = 'Monitoring Active';
+        window.updatePowerButtonUI(true);
         window.addActivity("System: Security Protection has been ACTIVATED.");
     } else {
         status.className = 'badge badge-malicious';
@@ -421,12 +471,14 @@ api.onOutlookStatus(statusData => {
     if (running) {
         status.className = 'badge badge-safe';
         status.textContent = 'Monitoring Active';
+        window.updatePowerButtonUI(true);
     } else if (isStandby) {
         status.className = 'badge badge-spam';
         status.textContent = 'Standby (Outlook Idle)';
     } else {
         status.className = 'badge badge-malicious';
         status.textContent = 'Protection Stopped';
+        window.updatePowerButtonUI(false);
     }
 });
 
@@ -437,10 +489,13 @@ window.winClose = () => api.closeWindow ? api.closeWindow() : api.hideWindow();
 
 async function init() {
     const stats = await api.getStats();
-    window.AppState.updateStats({ full: true, stats: stats });
+    window.AppState.updateStats(stats);
     try {
         const cfg = await api.getConfig();
         window.AppState.config = cfg;
+        if (cfg) {
+            window.updatePowerButtonUI(cfg.enabled !== false);
+        }
         let localCompleted = false;
         try {
             localCompleted = localStorage.getItem('deskguard_first_run_completed') === 'true';

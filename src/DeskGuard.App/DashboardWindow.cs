@@ -21,13 +21,36 @@ using Microsoft.Web.WebView2.Core;
 
 internal sealed partial class DashboardWindow : IDisposable
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
+
     private static DashboardWindow? _instance;
     private readonly IntPtr _hwnd;
     private readonly VaultRepository _vault;
     private readonly OutlookMapiService _mapiService;
     private readonly ScoringEngine _scoringEngine;
     private readonly ScanConfiguration _config;
+    private readonly string _configFilePath;
     private readonly CancellationTokenSource _cts = new();
+
+    private void SaveConfig() => _config.Save(_configFilePath);
+
+    public static void Log(string msg)
+    {
+        try
+        {
+            string logPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DeskGuard",
+                "webview2.log");
+            File.AppendAllText(logPath, $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] {msg}{Environment.NewLine}");
+        }
+        catch { }
+        Console.WriteLine($"[Dashboard] {msg}");
+    }
 
     private CoreWebView2Controller? _controller;
     private CoreWebView2? _coreWebView;
@@ -189,6 +212,11 @@ internal sealed partial class DashboardWindow : IDisposable
         _vault = vault;
         _mapiService = mapiService;
         _config = config;
+        _configFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "DeskGuard",
+            "data",
+            "config.json");
         _scoringEngine = new ScoringEngine();
 
         IntPtr hInstance = GetModuleHandleW(IntPtr.Zero);
@@ -242,17 +270,6 @@ internal sealed partial class DashboardWindow : IDisposable
             "DeskGuard",
             "webview2");
         Directory.CreateDirectory(userDataFolder);
-
-        string logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "DeskGuard",
-            "webview2.log");
-
-        void Log(string msg)
-        {
-            try { File.AppendAllText(logPath, $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] {msg}{Environment.NewLine}"); } catch { }
-            Console.WriteLine($"[Dashboard] {msg}");
-        }
 
         try
         {
@@ -358,11 +375,14 @@ internal sealed partial class DashboardWindow : IDisposable
             {
                 ["type"] = "event",
                 ["channel"] = channel,
-                ["data"] = JsonSerializer.SerializeToNode(data)
+                ["data"] = JsonSerializer.SerializeToNode(data, JsonOptions)
             };
             _coreWebView.PostWebMessageAsJson(evt.ToJsonString());
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Log($"[IPC] PostEvent error on '{channel}': {ex.Message}");
+        }
     }
 
     private void PostWebMessageResponse(long id, object? result, string? error)
@@ -380,44 +400,87 @@ internal sealed partial class DashboardWindow : IDisposable
             {
                 ["type"] = "response",
                 ["id"] = id,
-                ["result"] = result != null ? JsonSerializer.SerializeToNode(result) : null,
+                ["result"] = result != null ? JsonSerializer.SerializeToNode(result, JsonOptions) : null,
                 ["error"] = error
             };
             _coreWebView.PostWebMessageAsJson(resp.ToJsonString());
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Log($"[IPC] PostWebMessageResponse error for id={id}: {ex.Message}");
+        }
     }
 
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         try
         {
-            string json = e.WebMessageAsJson;
-            using JsonDocument doc = JsonDocument.Parse(json);
-            JsonElement root = doc.RootElement;
-
-            long id = root.TryGetProperty("id", out var idProp) ? idProp.GetInt64() : 0;
-            string channel = root.TryGetProperty("channel", out var chProp) ? chProp.GetString() ?? string.Empty : string.Empty;
-            JsonElement payload = root.TryGetProperty("payload", out var plProp) ? plProp : default;
-
-            object? result = null;
-            string? error = null;
-
+            string raw = string.Empty;
             try
             {
-                result = await HandleIpcMessageAsync(channel, payload);
+                raw = e.TryGetWebMessageAsString();
             }
-            catch (Exception ex)
+            catch { }
+
+            if (string.IsNullOrWhiteSpace(raw))
             {
-                error = ex.Message;
+                raw = e.WebMessageAsJson;
             }
 
-            if (id > 0)
+            using JsonDocument doc = JsonDocument.Parse(raw);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind == JsonValueKind.String)
             {
-                PostWebMessageResponse(id, result, error);
+                string? inner = root.GetString();
+                if (!string.IsNullOrWhiteSpace(inner))
+                {
+                    using JsonDocument innerDoc = JsonDocument.Parse(inner);
+                    await DispatchIpcMessageAsync(innerDoc.RootElement);
+                    return;
+                }
             }
+
+            await DispatchIpcMessageAsync(root);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Log($"[IPC] OnWebMessageReceived parsing error: {ex}");
+        }
+    }
+
+    private async Task DispatchIpcMessageAsync(JsonElement root)
+    {
+        long id = 0;
+        if (root.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.Number)
+        {
+            id = idProp.GetInt64();
+        }
+
+        string channel = string.Empty;
+        if (root.TryGetProperty("channel", out var chProp) && chProp.ValueKind == JsonValueKind.String)
+        {
+            channel = chProp.GetString() ?? string.Empty;
+        }
+
+        JsonElement payload = root.TryGetProperty("payload", out var plProp) ? plProp : default;
+
+        object? result = null;
+        string? error = null;
+
+        try
+        {
+            result = await HandleIpcMessageAsync(channel, payload);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            Log($"[IPC] HandleIpcMessageAsync error on '{channel}': {ex}");
+        }
+
+        if (id > 0)
+        {
+            PostWebMessageResponse(id, result, error);
+        }
     }
 
     private async Task<object?> HandleIpcMessageAsync(string channel, JsonElement payload)
@@ -470,12 +533,45 @@ internal sealed partial class DashboardWindow : IDisposable
                 });
 
             case "get-config":
-                return _config;
+                return new
+                {
+                    enabled = _config.Enabled,
+                    onAccessEnabled = _config.OnAccessEnabled,
+                    historyScanEnabled = _config.HistoryScanEnabled,
+                    deepHistoryScanEnabled = _config.DeepHistoryScanEnabled,
+                    onDemandLimit = _config.OnDemandLimit,
+                    weights = _config.Weights,
+                    toggles = _config.Toggles,
+                    thresholds = _config.Thresholds,
+                    whitelist = _config.Whitelist,
+                    blacklist = _config.Blacklist,
+                    spamKeywords = _config.SpamKeywords,
+                    rubrics = _config.Rubrics,
+                    threatIntelligenceLevel = _config.ThreatIntelligenceLevel,
+                    scanningSpeed = _config.ScanningSpeed,
+                    spamDestination = _config.SpamDestination,
+                    labelInOutlook = _config.LabelInOutlook,
+                    vtKey = _config.VtKey,
+                    vtApiKey = _config.VtKey,
+                    launchAtStartup = StartupManager.IsStartupEnabled()
+                };
 
             case "set-enabled":
                 if (payload.ValueKind is JsonValueKind.True or JsonValueKind.False)
                 {
-                    _config.Enabled = payload.GetBoolean();
+                    bool enable = payload.GetBoolean();
+                    _config.Enabled = enable;
+                    _mapiService.UpdateConfiguration(_config);
+                    SaveConfig();
+                    if (enable)
+                    {
+                        _ = _mapiService.StartLiveWatcherAsync(_cts.Token);
+                    }
+                    else
+                    {
+                        _ = _mapiService.StopLiveWatcherAsync();
+                    }
+                    PostEvent("status-sync", enable);
                 }
                 return new { ok = true };
 
@@ -483,6 +579,8 @@ internal sealed partial class DashboardWindow : IDisposable
                 if (payload.ValueKind is JsonValueKind.True or JsonValueKind.False)
                 {
                     _config.HistoryScanEnabled = payload.GetBoolean();
+                    _mapiService.UpdateConfiguration(_config);
+                    SaveConfig();
                 }
                 return new { ok = true };
 
@@ -492,6 +590,7 @@ internal sealed partial class DashboardWindow : IDisposable
                     int speed = payload.GetInt32();
                     _config.ScanningSpeed = speed;
                     _mapiService.SetScanSpeed(speed);
+                    SaveConfig();
                 }
                 return new { ok = true };
 
@@ -499,6 +598,7 @@ internal sealed partial class DashboardWindow : IDisposable
                 if (payload.ValueKind == JsonValueKind.Number)
                 {
                     _config.ThreatIntelligenceLevel = payload.GetInt32();
+                    SaveConfig();
                 }
                 return new { ok = true };
 
@@ -506,6 +606,38 @@ internal sealed partial class DashboardWindow : IDisposable
                 if (payload.ValueKind == JsonValueKind.String)
                 {
                     _config.VtKey = payload.GetString() ?? string.Empty;
+                    SaveConfig();
+                }
+                return new { ok = true };
+
+            case "set-rubrics":
+                if (payload.ValueKind == JsonValueKind.Object)
+                {
+                    if (payload.TryGetProperty("weights", out var wElem) && wElem.ValueKind == JsonValueKind.Object)
+                    {
+                        _config.Weights.Clear();
+                        foreach (var prop in wElem.EnumerateObject())
+                        {
+                            if (prop.Value.TryGetDouble(out double val))
+                                _config.Weights[prop.Name] = val;
+                        }
+                    }
+                    if (payload.TryGetProperty("toggles", out var tElem) && tElem.ValueKind == JsonValueKind.Object)
+                    {
+                        _config.Toggles.Clear();
+                        foreach (var prop in tElem.EnumerateObject())
+                        {
+                            _config.Toggles[prop.Name] = prop.Value.GetBoolean();
+                        }
+                    }
+                    if (payload.TryGetProperty("maliciousThresholdPercent", out var mt) && mt.TryGetDouble(out double mtv))
+                        _config.Thresholds.MaliciousThresholdPercent = mtv;
+                    if (payload.TryGetProperty("spamThresholdPercent", out var st) && st.TryGetDouble(out double stv))
+                        _config.Thresholds.SpamThresholdPercent = stv;
+                    if (payload.TryGetProperty("suspiciousThresholdPercent", out var sst) && sst.TryGetDouble(out double sstv))
+                        _config.Thresholds.SuspiciousThresholdPercent = sstv;
+                    _mapiService.UpdateConfiguration(_config);
+                    SaveConfig();
                 }
                 return new { ok = true };
 
@@ -533,7 +665,50 @@ internal sealed partial class DashboardWindow : IDisposable
                         _config.LabelInOutlook = lb.GetBoolean();
                     }
                     _mapiService.UpdateConfiguration(_config);
+                    SaveConfig();
                 }
+                return new { ok = true };
+
+            case "start-full-scan":
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        PostEvent("outlook-scan-update", new { status = "SCANNING", count = 0, total = 100 });
+                        await _mapiService.RunSweepAsync(DateTime.UtcNow.AddDays(-30), _cts.Token);
+                        PostEvent("outlook-scan-update", new { status = "Finished" });
+
+                        var statsDict = _vault.GetAllCategorizedEmails(100);
+                        var engineStats = _vault.GetStats();
+                        PostEvent("stats-update", new
+                        {
+                            full = true,
+                            stats = new
+                            {
+                                malicious = statsDict.GetValueOrDefault("malicious", []),
+                                suspicious = statsDict.GetValueOrDefault("suspicious", []),
+                                spam = statsDict.GetValueOrDefault("spam", []),
+                                safe = statsDict.GetValueOrDefault("safe", [])
+                            },
+                            counts = new
+                            {
+                                total = engineStats.Total,
+                                malicious = engineStats.Malicious,
+                                suspicious = engineStats.Suspicious,
+                                spam = engineStats.Spam,
+                                safe = engineStats.Safe
+                            }
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        PostEvent("live-log", $"[Full Scan Error] {ex.Message}");
+                        PostEvent("outlook-scan-update", new { status = "Finished" });
+                    }
+                });
+                return new { ok = true, started = true };
+
+            case "set-first-run":
                 return new { ok = true };
 
             case "set-startup":
@@ -542,7 +717,8 @@ internal sealed partial class DashboardWindow : IDisposable
                 return new { ok = true };
 
             case "check-startup":
-                return new { enabled = StartupManager.IsStartupEnabled() };
+                bool isStartup = StartupManager.IsStartupEnabled();
+                return new { systemActive = isStartup, enabled = isStartup, configEnabled = isStartup };
 
             case "open-logs-folder":
                 try

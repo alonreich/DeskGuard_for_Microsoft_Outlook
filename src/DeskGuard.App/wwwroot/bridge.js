@@ -40,7 +40,7 @@
             const id = reqId++;
             pending.set(id, { resolve, reject });
             if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage(JSON.stringify({ id, channel, payload }));
+                window.chrome.webview.postMessage({ id, channel, payload });
             } else {
                 reject(new Error('WebView2 bridge not ready'));
             }
@@ -59,6 +59,7 @@
     window.securityApi = {
         getStats: () => invoke('get-stats'),
         getConfig: () => invoke('get-config'),
+        startFullScan: () => invoke('start-full-scan'),
         setEnabled: value => invoke('set-enabled', value),
         setHistoryEnabled: value => invoke('set-history-enabled', value),
         setProcessedIds: value => invoke('set-processed-ids', value),

@@ -25,6 +25,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.5] - 2026-10-27
+
+### Added
+- Prominent protection toggle button (`#dashboard-power-btn`) in the dashboard header area (`index.html`, `style.css`, `ui_main.js`) with visual active/inactive states (`Protection ON` / `Protection OFF`), wired to `api.setEnabled`.
+- `start-full-scan` IPC endpoint in `DashboardWindow.cs` and `bridge.js`, connecting the "Full Audit" button directly to `OutlookMapiService.RunSweepAsync`.
+- Retry copy mechanism (`CopyFileWithRetry`) in `DeploymentLifecycle.cs` with exponential backoff to eliminate file locking failures during application upgrades.
+- Script tag for `ui_reset.js` in `index.html` to enable Safe Upgrade and Scorched Earth factory reset operations from Settings.
+- Configuration persistence via `ScanConfiguration.Load` and `ScanConfiguration.Save` targeting `%LocalAppData%\DeskGuard\config.json`.
+
+### Changed
+- Refactored `DashboardWindow.cs` IPC response and event serialization to enforce `CamelCase` property naming policy, aligning C# payloads with frontend property expectations.
+- Configured NativeAOT JSON source generation context (`DeskGuardJsonContext.Default.ScanConfiguration`) in `ScanConfiguration.cs` to eliminate reflection trimmer warnings.
+- Updated `ui_main.js`'s `AppState.updateStats` and `init()` to handle both direct and nested stats data envelopes, restoring email count counters and incident rendering.
+- Enhanced `Program.cs` to trigger initial recent mailbox sweep on connect if history scan is enabled and synchronize tray status with configured protection state.
+
+### Fixed
+- Fixed settings modal blank hang caused by unhandled string-wrapped JSON in `DashboardWindow.OnWebMessageReceived` / `DispatchIpcMessageAsync` throwing `JsonElement is not an Object` when processing stringified bridge messages.
+- Fixed post-install launch failure in `DeploymentLifecycle.cs` by replacing invalid `Process.Start("explorer.exe", targetExe)` with `Shell.Application.ShellExecute` to launch the upgraded application at interactive medium integrity.
+- Fixed process termination in `DeploymentLifecycle.TerminateRunningAppInstances` to protect current installer and temp extraction processes from being terminated during self-updates.
+---
+
 ## [1.0.4] - 2026-10-27
 
 ### Added

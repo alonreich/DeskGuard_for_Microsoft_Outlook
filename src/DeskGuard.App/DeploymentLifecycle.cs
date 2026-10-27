@@ -3,6 +3,7 @@ namespace DeskGuard.App;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -200,21 +201,18 @@ internal static class DeploymentLifecycle
 
         Directory.CreateDirectory(targetDir);
 
-        // Copy files
+        // Copy files with retry to guarantee reliable overwrites during upgrade
         foreach (var (relPath, sourceFile) in filesToInstall)
         {
             string destFile = Path.Combine(targetDir, relPath);
-            string? destDir = Path.GetDirectoryName(destFile);
-            if (!string.IsNullOrEmpty(destDir)) Directory.CreateDirectory(destDir);
-
-            File.Copy(sourceFile, destFile, overwrite: true);
+            CopyFileWithRetry(sourceFile, destFile);
         }
 
         if (hasManifest)
         {
             try
             {
-                File.Copy(Path.Combine(sourceDir, "update.json"), Path.Combine(targetDir, "update.json"), overwrite: true);
+                CopyFileWithRetry(Path.Combine(sourceDir, "update.json"), Path.Combine(targetDir, "update.json"));
             }
             catch { }
         }
@@ -265,32 +263,77 @@ internal static class DeploymentLifecycle
 
         Console.WriteLine("[Deployment] Installation completed successfully.");
 
-        // Start installed application
-        try
-        {
-            if (IsElevated())
-            {
-                // De-elevate via Explorer to ensure Medium integrity for Outlook COM & WebView2
-                Process.Start("explorer.exe", $"\"{targetExe}\"");
-            }
-            else
-            {
-                ProcessStartInfo startApp = new(targetExe)
-                {
-                    WorkingDirectory = targetDir,
-                    UseShellExecute = true
-                };
-                Process.Start(startApp);
-            }
-        }
-        catch { }
+        // Start installed application reliably as medium-integrity interactive user
+        LaunchInstalledApp(targetExe, targetDir);
 
         return 0;
+    }
+
+    private static void CopyFileWithRetry(string source, string dest, int maxRetries = 6)
+    {
+        string? destDir = Path.GetDirectoryName(dest);
+        if (!string.IsNullOrEmpty(destDir)) Directory.CreateDirectory(destDir);
+
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
+            {
+                File.Copy(source, dest, overwrite: true);
+                return;
+            }
+            catch (IOException) when (i < maxRetries - 1)
+            {
+                Thread.Sleep(500);
+            }
+            catch (UnauthorizedAccessException) when (i < maxRetries - 1)
+            {
+                Thread.Sleep(500);
+            }
+        }
+    }
+
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Shell.Application COM object instantiation")]
+    private static void LaunchInstalledApp(string targetExe, string targetDir)
+    {
+        try
+        {
+            // Use Shell.Application to launch at Medium Integrity via Windows Explorer desktop session
+            Type? shellType = Type.GetTypeFromProgID("Shell.Application");
+            if (shellType != null)
+            {
+                dynamic? shell = Activator.CreateInstance(shellType);
+                if (shell != null)
+                {
+                    shell.ShellExecute(targetExe, "", targetDir, "open", 1);
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Deployment] Shell.Application launch error: {ex.Message}");
+        }
+
+        try
+        {
+            ProcessStartInfo startApp = new(targetExe)
+            {
+                WorkingDirectory = targetDir,
+                UseShellExecute = true
+            };
+            Process.Start(startApp);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Deployment] Process.Start fallback error: {ex.Message}");
+        }
     }
 
     private static void TerminateRunningAppInstances(string targetDir)
     {
         int currentPid = Environment.ProcessId;
+        string tempDir = Path.GetTempPath();
+
         foreach (Process proc in Process.GetProcessesByName("DeskGuard"))
         {
             using (proc)
@@ -300,13 +343,20 @@ internal static class DeploymentLifecycle
                 {
                     string? exePath = null;
                     try { exePath = proc.MainModule?.FileName; } catch { }
-                    if (exePath == null ||
-                        exePath.StartsWith(targetDir, StringComparison.OrdinalIgnoreCase) ||
-                        exePath.StartsWith(DeploymentFootprint.ProgramFilesInstallFolder, StringComparison.OrdinalIgnoreCase) ||
-                        exePath.StartsWith(DeploymentFootprint.PerUserInstallFolder, StringComparison.OrdinalIgnoreCase))
+
+                    // Never terminate installer instances running from Temp
+                    if (!string.IsNullOrEmpty(exePath) && exePath.StartsWith(tempDir, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (!string.IsNullOrEmpty(exePath) &&
+                        (exePath.StartsWith(targetDir, StringComparison.OrdinalIgnoreCase) ||
+                         exePath.StartsWith(DeploymentFootprint.ProgramFilesInstallFolder, StringComparison.OrdinalIgnoreCase) ||
+                         exePath.StartsWith(DeploymentFootprint.PerUserInstallFolder, StringComparison.OrdinalIgnoreCase)))
                     {
                         proc.Kill(entireProcessTree: true);
-                        proc.WaitForExit(3000);
+                        proc.WaitForExit(5000);
                     }
                 }
                 catch { }
