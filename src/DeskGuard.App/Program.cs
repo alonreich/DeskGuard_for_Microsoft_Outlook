@@ -27,14 +27,14 @@ internal static partial class Program
     private const string AppMutexName = @"Local\DeskGuard_App_SingleInstance_Mutex";
 
     [STAThread]
-    private static async Task<int> Main(string[] args)
+    private static int Main(string[] args)
     {
         // Enforce OLE/COM Single-Threaded Apartment mode before any Shell/COM APIs are invoked
         _ = OleInitialize(IntPtr.Zero);
 
         try
         {
-            return await RunAppAsync(args);
+            return RunApp(args);
         }
         finally
         {
@@ -42,14 +42,14 @@ internal static partial class Program
         }
     }
 
-    private static async Task<int> RunAppAsync(string[] args)
+    private static int RunApp(string[] args)
     {
         // Attach to parent console if invoked from terminal (CLI/PowerShell/cmd)
         _ = AttachConsole(ATTACH_PARENT_PROCESS);
 
         if (DeploymentLifecycle.ShouldHandle(args))
         {
-            return await DeploymentLifecycle.RunAsync(args);
+            return DeploymentLifecycle.RunAsync(args).GetAwaiter().GetResult();
         }
 
         // Enforce single running instance per user session
@@ -82,7 +82,7 @@ internal static partial class Program
         using OutlookMapiService mapiService = new(coordinator, vault, config);
 
         using DashboardWindow dashboard = new(vault, mapiService, config);
-        await dashboard.InitializeAsync();
+        dashboard.Initialize();
 
         tray.RequestOpenDashboard += () =>
         {
@@ -230,7 +230,7 @@ internal static partial class Program
         Console.WriteLine("Shutting down DeskGuard...");
         try
         {
-            await mapiService.StopLiveWatcherAsync();
+            mapiService.StopLiveWatcherAsync().GetAwaiter().GetResult();
         }
         catch { }
 

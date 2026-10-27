@@ -1,4 +1,4 @@
-# DeskGuard for Microsoft Outlook - Changelog & Change Staging
+﻿# DeskGuard for Microsoft Outlook - Changelog & Change Staging
 
 All notable changes to DeskGuard are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -23,6 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - None.
 
+---
+
+## [1.0.4] - 2026-10-27
+
+### Added
+- None.
+
+### Changed
+- Reduced the font and heading size of the direct download link in `README.md` from H1 to H3 for clean, proportionate visual hierarchy.
+
+### Fixed
+- Fixed startup white blank page freeze (`RPC_E_CHANGED_MODE / 0x80010106`) during WebView2 initialization by refactoring `Program.Main` from `async Task<int>` to synchronous `[STAThread] static int Main(string[] args)`, ensuring Roslyn assigns `STAThreadAttribute` directly to the CLR entry point so the main UI thread enters Single-Threaded Apartment (STA) mode.
+- Converted `DashboardWindow.InitializeAsync()` to synchronous `public void Initialize()`, properly executing WebView2 environment and controller creation on the primary STA thread with message pumping.
 ---
 
 ## [1.0.3] - 2026-10-27

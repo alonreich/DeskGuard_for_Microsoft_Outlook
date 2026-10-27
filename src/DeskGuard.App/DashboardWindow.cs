@@ -233,9 +233,9 @@ internal sealed partial class DashboardWindow : IDisposable
             IntPtr.Zero);
     }
 
-    public Task InitializeAsync()
+    public void Initialize()
     {
-        if (_isInitialized || _hwnd == IntPtr.Zero) return Task.CompletedTask;
+        if (_isInitialized || _hwnd == IntPtr.Zero) return;
 
         string userDataFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -321,8 +321,6 @@ internal sealed partial class DashboardWindow : IDisposable
         {
             Log($"FATAL: WebView2 initialization error: {ex}");
         }
-
-        return Task.CompletedTask;
     }
 
     public void ShowAndFocus()

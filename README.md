@@ -8,7 +8,7 @@
 
 <div align="center">
 
-# 👉 [**Click Here to Download DeskGuard.exe (Windows 64-bit)**](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe) 👈
+### 👉 [**Click Here to Download DeskGuard.exe (Windows 64-bit)**](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe) 👈
 
 **[📦 Direct Download Link (DeskGuard.exe)](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe)** &nbsp;&bull;&nbsp; **[📋 View Latest Release Page](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest)** &nbsp;&bull;&nbsp; **[📁 All Releases](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases)**
 
