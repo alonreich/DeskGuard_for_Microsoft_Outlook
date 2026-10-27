@@ -10,7 +10,13 @@
 
 **High-performance, zero-runtime sentinel & intelligent mailbox deduplicator for Microsoft Outlook desktop.**
 
-[Features](#-key-capabilities) • [Quick Start](#-quick-start) • [Developer Commands](#-developer-commands) • [Documentation Router](#-documentation--ai-agents) • [What's New](docs/change.md)
+<p align="center">
+  <a href="https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe">
+    <img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F%20Direct%20Download-DeskGuard.exe%20(Latest%20Installer)-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download Latest Release" />
+  </a>
+</p>
+
+[📥 Download Latest Installer](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe) • [All Releases](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases) • [Features](#-key-capabilities) • [Quick Start](#-quick-start) • [Developer Commands](#-developer-commands) • [What's New](docs/change.md)
 
 </div>
 
@@ -40,7 +46,7 @@ Compiled directly to **Native AOT (x64 machine code)**, DeskGuard starts instant
 ## 🚀 Quick Start
 
 ### For Users
-1. Download the latest installer from [Releases](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases).
+1. Download **[DeskGuard.exe (Direct Download)](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases/latest/download/DeskGuard.exe)** (or view all versions on [GitHub Releases](https://github.com/alonreich/DeskGuard_for_Microsoft_Outlook/releases)).
 2. Run `DeskGuard.exe` to install.
 3. DeskGuard starts automatically in your system tray and safeguards your Outlook inbox.
 
