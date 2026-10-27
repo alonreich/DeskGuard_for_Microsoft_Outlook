@@ -1,0 +1,59 @@
+# ==============================================================================
+# DeskGuard for Microsoft Outlook - Git Ignore Rules
+# ==============================================================================
+
+# Build outputs & intermediate compiler artifacts
+[Bb]in/
+[Oo]bj/
+[Cc]ompiled/
+[Tt]est[Rr]esults/
+.dev-run/
+.dev-run.lock
+
+# Build logs and status verdicts
+*.log
+build.log
+build.result.txt
+*.result.txt
+
+# Visual Studio / IDE temporary files & user preferences
+.vs/
+.vscode/
+.idea/
+*.user
+*.userosv
+*.suo
+*.userprefs
+*.pidb
+*.booproj
+*.svclog
+*.DotSettings.user
+
+# Local runtime databases & SQLite journals
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Windows OS metadata
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# NuGet caches
+project.lock.json
+project.assets.json
+*.nuget.props
+*.nuget.targets
+
+# Sensitive credentials & environment files
+*.env
+*.env.*
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer
+*.crt
