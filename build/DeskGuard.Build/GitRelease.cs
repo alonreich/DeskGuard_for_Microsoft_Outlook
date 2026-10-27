@@ -90,10 +90,10 @@ internal static class GitRelease
 
         string content = File.ReadAllText(changeLogPath);
 
-        // Pattern to match unreleased section
+        // Pattern to match unreleased section (anchored to start of line)
         Match unreleasedMatch = Regex.Match(
             content,
-            @"##\s*\[Unreleased\]\s*(?<notes>[\s\S]*?)(?=\r?\n---\r?\n\s*##\s*\[|\r?\n##\s*\[|$)",
+            @"(?m)^##\s*\[Unreleased\]\s*\r?\n(?<notes>[\s\S]*?)(?=\r?\n---\r?\n\s*##\s*\[|\r?\n##\s*\[|$)",
             RegexOptions.IgnoreCase);
 
         string rawNotes = unreleasedMatch.Success ? unreleasedMatch.Groups["notes"].Value.Trim() : string.Empty;
@@ -102,8 +102,8 @@ internal static class GitRelease
         bool hasSubstantiveNotes = !string.IsNullOrWhiteSpace(rawNotes) &&
                                   !Regex.IsMatch(rawNotes, @"^(?:###\s+\w+\r?\n\s*-\s*None\.?\s*)+$", RegexOptions.IgnoreCase);
 
-        // Find existing versions
-        MatchCollection versionMatches = Regex.Matches(content, @"##\s*\[(?<ver>(\d+)\.(\d+)\.(\d+))\]");
+        // Find existing versions (anchored to start of line)
+        MatchCollection versionMatches = Regex.Matches(content, @"(?m)^##\s*\[(?<ver>(\d+)\.(\d+)\.(\d+))\]");
         int major = 1, minor = 0, patch = 2;
 
         if (versionMatches.Count > 0)
@@ -147,7 +147,7 @@ internal static class GitRelease
 
             string updatedContent = Regex.Replace(
                 content,
-                @"##\s*\[Unreleased\]\s*[\s\S]*?(?=\r?\n---\r?\n\s*##\s*\[|\r?\n##\s*\[|$)",
+                @"(?m)^##\s*\[Unreleased\]\s*[\s\S]*?(?=\r?\n---\r?\n\s*##\s*\[|\r?\n##\s*\[|$)",
                 newReleaseBlock,
                 RegexOptions.IgnoreCase);
 
@@ -159,7 +159,7 @@ internal static class GitRelease
             targetVersion = $"{major}.{minor}.{patch}";
             Match latestBlockMatch = Regex.Match(
                 content,
-                $@"##\s*\[{Regex.Escape(targetVersion)}\][^\r\n]*\r?\n(?<notes>[\s\S]*?)(?=\r?\n---\r?\n\s*##\s*\[|\r?\n##\s*\[|$)",
+                @$"(?m)^##\s*\[{Regex.Escape(targetVersion)}\][^\r\n]*\r?\n(?<notes>[\s\S]*?)(?=\r?\n---\r?\n\s*##\s*\[|\r?\n##\s*\[|$)",
                 RegexOptions.IgnoreCase);
             finalNotes = latestBlockMatch.Success ? latestBlockMatch.Groups["notes"].Value.Trim() : $"DeskGuard release v{targetVersion}";
         }
