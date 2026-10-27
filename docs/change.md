@@ -15,22 +15,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Prominent direct download badge and release link for `DeskGuard.exe` at the top and quick start sections of `README.md`.
-- Token-saving documentation architecture with `project_structure.txt` router and modular domain docs in `docs/`.
-- Repository `.gitignore` tailored for .NET 9 Native AOT, Inno Setup, SQLite WAL, and Windows build artifacts.
-- Human-centric condensed `README.md` highlighting real-time threat detection, deduplication, and zero-runtime Native AOT architecture.
+- None.
 
 ### Changed
 - None.
 
-### Deprecated
-- None.
-
-### Removed
-- None.
-
 ### Fixed
 - None.
+
+---
+
+## [1.0.1] - 2026-10-27
+
+### Added
+- Prominent direct download badge and release link for `DeskGuard.exe` at the top and quick start sections of `README.md`.
+- Token-saving documentation architecture with `project_structure.txt` router and modular domain docs in `docs/`.
+- Repository `.gitignore` tailored for .NET 9 Native AOT, Inno Setup, SQLite WAL, and Windows build artifacts.
+- Human-centric condensed `README.md` highlighting real-time threat detection, deduplication, and zero-runtime Native AOT architecture.
 
 ### Security
 - Verified zero credential/secret leakage across all source files and configuration templates.
