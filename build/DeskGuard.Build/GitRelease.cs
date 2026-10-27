@@ -98,9 +98,19 @@ internal static class GitRelease
 
         string rawNotes = unreleasedMatch.Success ? unreleasedMatch.Groups["notes"].Value.Trim() : string.Empty;
 
-        // Check if rawNotes has substantive content (not just empty or None)
-        bool hasSubstantiveNotes = !string.IsNullOrWhiteSpace(rawNotes) &&
-                                  !Regex.IsMatch(rawNotes, @"^(?:###\s+\w+\r?\n\s*-\s*None\.?\s*)+$", RegexOptions.IgnoreCase);
+        // Check if rawNotes has substantive content (any bullet line that is not '- None.')
+        bool hasSubstantiveNotes = false;
+        foreach (string line in rawNotes.Split('\n'))
+        {
+            string trimmed = line.Trim();
+            if (trimmed.StartsWith("-") &&
+                !trimmed.Equals("- None.", StringComparison.OrdinalIgnoreCase) &&
+                !trimmed.Equals("- None", StringComparison.OrdinalIgnoreCase))
+            {
+                hasSubstantiveNotes = true;
+                break;
+            }
+        }
 
         // Find existing versions (anchored to start of line)
         MatchCollection versionMatches = Regex.Matches(content, @"(?m)^##\s*\[(?<ver>(\d+)\.(\d+)\.(\d+))\]");
@@ -185,7 +195,8 @@ internal static class GitRelease
             int viewExit = Cli.RunStreaming(ghPath, ["release", "view", tagName], log);
             if (viewExit == 0)
             {
-                log.Info($"GitHub release '{tagName}' already exists. Uploading {Path.GetFileName(exePath)} (clobber)...");
+                log.Info($"GitHub release '{tagName}' already exists. Updating notes and uploading {Path.GetFileName(exePath)} (clobber)...");
+                _ = Cli.RunStreaming(ghPath, ["release", "edit", tagName, "--title", releaseTitle, "-F", tempNotes, "--latest"], log);
                 int uploadExit = Cli.RunStreaming(ghPath, ["release", "upload", tagName, exePath, "--clobber"], log);
                 return uploadExit == 0;
             }

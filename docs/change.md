@@ -1,4 +1,4 @@
-﻿# DeskGuard for Microsoft Outlook - Changelog & Change Staging
+# DeskGuard for Microsoft Outlook - Changelog & Change Staging
 
 All notable changes to DeskGuard are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -13,19 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [Unreleased]
-
-### Added
-- None.
-
-### Changed
-- None.
-
-### Fixed
-- None.
-
----
-
-## [1.0.4] - 2026-10-27
 
 ### Added
 - None.
