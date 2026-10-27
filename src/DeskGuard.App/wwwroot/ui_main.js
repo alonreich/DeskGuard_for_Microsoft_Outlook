@@ -80,9 +80,15 @@ function switchTab(tabId) {
     if (oldTab) oldTab.classList.remove('active');
     setTimeout(() => {
         window.AppState.currentTab = tabId;
-        document.querySelectorAll('.nav-item').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(p => {
+            p.classList.remove('active');
+            p.setAttribute('aria-selected', 'false');
+        });
         const navItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
-        if (navItem) navItem.classList.add('active');
+        if (navItem) {
+            navItem.classList.add('active');
+            navItem.setAttribute('aria-selected', 'true');
+        }
         
         newTab.classList.add('active');
 
@@ -111,21 +117,73 @@ function switchCategory(cat) {
     window.AppState.renderDashboard(changed);
 }
 
+let lastActiveElementBeforeModal = null;
+let activeModalTrapHandler = null;
+
 function openModal(id) {
     const m = document.getElementById(id);
+    if (!m) return;
+    lastActiveElementBeforeModal = document.activeElement;
     m.style.display = 'flex';
-    setTimeout(() => m.classList.add('active'), 10);
+    setTimeout(() => {
+        m.classList.add('active');
+        const focusable = m.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+        if (focusable.length > 0) {
+            const input = m.querySelector('input:not([disabled])') || focusable[0];
+            if (input && typeof input.focus === 'function') input.focus();
+        }
+    }, 10);
+
+    if (activeModalTrapHandler) {
+        document.removeEventListener('keydown', activeModalTrapHandler);
+    }
+    activeModalTrapHandler = (e) => {
+        if (e.key !== 'Tab') return;
+        const focusable = Array.from(m.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(el => el.offsetParent !== null);
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+            if (document.activeElement === first || !m.contains(document.activeElement)) {
+                e.preventDefault();
+                last.focus();
+            }
+        } else {
+            if (document.activeElement === last || !m.contains(document.activeElement)) {
+                e.preventDefault();
+                first.focus();
+            }
+        }
+    };
+    document.addEventListener('keydown', activeModalTrapHandler);
 }
 
 function closeModal(id) {
     const m = document.getElementById(id);
+    if (!m) return;
+    if (activeModalTrapHandler) {
+        document.removeEventListener('keydown', activeModalTrapHandler);
+        activeModalTrapHandler = null;
+    }
     m.classList.remove('active');
-    setTimeout(() => m.style.display = 'none', 300);
+    setTimeout(() => {
+        m.style.display = 'none';
+        if (lastActiveElementBeforeModal && typeof lastActiveElementBeforeModal.focus === 'function') {
+            try { lastActiveElementBeforeModal.focus(); } catch (e) {}
+            lastActiveElementBeforeModal = null;
+        }
+    }, 300);
 }
 
 function handleOverlayClick(e, id) {
     if (e.target === document.getElementById(id)) {
-        closeModal(id);
+        if (id === 'settings-modal') {
+            closeSettings();
+        } else if (id === 'confirm-modal') {
+            closeConfirm();
+        } else {
+            closeModal(id);
+        }
     }
 }
 
@@ -134,7 +192,19 @@ function openSettings() {
     window.syncSettingsUI();
 }
 
-function closeSettings() {
+function closeSettings(force = false) {
+    if (!force && window.settingsDirty) {
+        showConfirm(
+            "Discard Unsaved Changes?",
+            "You have modified configuration settings that have not been saved. Are you sure you want to discard your changes and close?",
+            () => {
+                window.settingsDirty = false;
+                closeModal('settings-modal');
+            }
+        );
+        return;
+    }
+    window.settingsDirty = false;
     closeModal('settings-modal');
 }
 
@@ -149,6 +219,10 @@ window.closeVirusTotalModal = closeVirusTotalModal;
 
 let confirmCallback = null;
 function showConfirm(title, msg, keyword, onExecute) {
+    if (typeof keyword === 'function' && onExecute === undefined) {
+        onExecute = keyword;
+        keyword = null;
+    }
     document.getElementById('confirm-title').textContent = title;
     document.getElementById('confirm-msg').textContent = msg;
     const inputCont = document.getElementById('confirm-input-container');
@@ -157,6 +231,7 @@ function showConfirm(title, msg, keyword, onExecute) {
     const executeBtn = document.getElementById('confirm-execute-btn');
     
     input.value = '';
+    input.style.borderColor = '';
     if (keyword) {
         inputCont.style.display = 'block';
         kwLabel.textContent = keyword;
@@ -168,20 +243,33 @@ function showConfirm(title, msg, keyword, onExecute) {
     
     openModal('confirm-modal');
     confirmCallback = () => {
-        if (keyword && input.value.toUpperCase() !== keyword.toUpperCase()) {
+        if (keyword && input.value.trim().toUpperCase() !== keyword.toUpperCase()) {
             input.style.borderColor = 'var(--danger)';
+            input.focus();
             return;
         }
-        onExecute();
+        if (typeof onExecute === 'function') {
+            onExecute();
+        }
         closeConfirm();
     };
     executeBtn.onclick = confirmCallback;
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            confirmCallback();
+        }
+    };
 }
 
 function closeConfirm() {
     closeModal('confirm-modal');
     confirmCallback = null;
 }
+
+window.showConfirm = showConfirm;
+window.showConfirmModal = function(title, msg, onExecute, keyword) {
+    showConfirm(title, msg, keyword, onExecute);
+};
 
 async function requestFullScan() {
     window.showConfirm("Full Mailbox Audit", "This will perform a deep forensic scan of ALL items in your mailbox. This may take several minutes. Proceed?", "AUDIT", async () => {
@@ -588,11 +676,26 @@ window.openForensics = (item) => {
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+        const confirmModal = document.getElementById('confirm-modal');
+        if (confirmModal && confirmModal.classList.contains('active')) {
+            closeConfirm();
+            return;
+        }
+        const settingsModal = document.getElementById('settings-modal');
+        if (settingsModal && settingsModal.classList.contains('active')) {
+            closeSettings();
+            return;
+        }
         const activeModal = document.querySelector('.modal-overlay.active');
         if (activeModal) {
             closeModal(activeModal.id);
             return;
         }
+    }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.classList && e.target.classList.contains('nav-item')) {
+        e.preventDefault();
+        e.target.click();
+        return;
     }
     if (window.AppState.currentTab === 'dashboard' && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
         if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;

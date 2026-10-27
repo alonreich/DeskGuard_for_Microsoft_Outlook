@@ -97,6 +97,11 @@ internal static partial class Program
             dashboard.PostEvent("live-log", msg);
         };
 
+        mapiService.SweepProgress += (count, total) =>
+        {
+            dashboard.PostEvent("outlook-scan-update", new { status = "SCANNING", count, total });
+        };
+
         mapiService.EmailScanned += email =>
         {
             Console.WriteLine($"Scanned: {email.Subject} [{email.Verdict}] (Score: {email.Score:F1})");

@@ -61,6 +61,7 @@ JavaScript sends JSON messages via `window.bridge.send(action, payload)` or `win
 Backend pushes real-time telemetry via `DashboardWindow.PostEvent(eventName, data)`:
 - `live-log`: Streaming diagnostic lines to the live activity console.
 - `outlook-scan-update`: Fires whenever an incoming or crawled email is analyzed.
+- `duplicate-update`: Notifies duplicate discovery UI of batch scan progress and completion.
 - `outlook-status`: Notifies frontend of Outlook process connection or disconnection.
 - `stats-update`: Real-time aggregate count refresh.
 

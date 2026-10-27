@@ -40,6 +40,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
     public event Action<EmailRecord>? EmailScanned;
     public event Action<string>? LogProgress;
     public event Action<string, string>? EngineStatusChanged;
+    public event Action<int, int>? SweepProgress;
 
     public OutlookMapiService(
         OutlookStaCoordinator coordinator,
@@ -152,16 +153,30 @@ public sealed class OutlookMapiService : IOutlookMapiService
             EnsureOutlookConnected();
             if (_mapiNamespace == null) return;
 
-            LogProgress?.Invoke($"Starting Sweep for items received since {sinceUtc:u}...");
-            string filter = OutlookMailboxCrawler.GetReceivedSinceFilter(sinceUtc);
+            string? filter = sinceUtc == DateTime.MinValue
+                ? null
+                : OutlookMailboxCrawler.GetReceivedSinceFilter(sinceUtc);
+
+            LogProgress?.Invoke(sinceUtc == DateTime.MinValue
+                ? "Starting full mailbox sweep across all historical folders..."
+                : $"Starting Sweep for items received since {sinceUtc:u}...");
+
             List<CrawledFolderEntry> folders = OutlookMailboxCrawler.DiscoverMailFolders(_mapiNamespace);
 
-            int totalSwept = 0;
+            List<(CrawledFolderEntry Folder, List<CrawledEmailSummary> Items)> batches = [];
+            int totalItemsInScope = 0;
             foreach (CrawledFolderEntry folder in folders)
             {
                 if (ct.IsCancellationRequested) break;
-                List<CrawledEmailSummary> items = OutlookMailboxCrawler.ReadFolderItems(_mapiNamespace, folder, filter);
+                List<CrawledEmailSummary> folderItems = OutlookMailboxCrawler.ReadFolderItems(_mapiNamespace, folder, filter);
+                totalItemsInScope += folderItems.Count;
+                batches.Add((folder, folderItems));
+            }
 
+            int totalSwept = 0;
+            foreach (var (folder, items) in batches)
+            {
+                if (ct.IsCancellationRequested) break;
                 foreach (CrawledEmailSummary item in items)
                 {
                     if (ct.IsCancellationRequested) break;
@@ -169,6 +184,11 @@ public sealed class OutlookMapiService : IOutlookMapiService
 
                     ProcessSingleEmail(item.EntryId, item.StoreId, isLiveArrival: false);
                     totalSwept++;
+
+                    if (totalSwept % 5 == 0 || totalSwept == totalItemsInScope)
+                    {
+                        SweepProgress?.Invoke(totalSwept, Math.Max(totalSwept, totalItemsInScope));
+                    }
 
                     _coordinator.YieldIfHighPriority(ct);
 
@@ -179,6 +199,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 }
             }
 
+            SweepProgress?.Invoke(totalSwept, totalSwept);
             LogProgress?.Invoke($"Sweep completed: {totalSwept} items evaluated.");
         }, JobPriority.P2, "SweepMailbox", cancellationToken);
     }
@@ -325,6 +346,9 @@ public sealed class OutlookMapiService : IOutlookMapiService
                         {
                             EntryId = duplicate.EntryId,
                             StoreId = duplicate.StoreId,
+                            Subject = !string.IsNullOrEmpty(duplicate.Subject) ? duplicate.Subject : (!string.IsNullOrEmpty(survivor.Subject) ? survivor.Subject : "(No Subject)"),
+                            Sender = !string.IsNullOrEmpty(duplicate.Sender) ? duplicate.Sender : (!string.IsNullOrEmpty(survivor.Sender) ? survivor.Sender : "Unknown"),
+                            Timestamp = !string.IsNullOrEmpty(duplicate.Timestamp) ? duplicate.Timestamp : survivor.Timestamp,
                             Folder = duplicate.FolderPath,
                             Size = duplicate.Size,
                             Dna = dna,

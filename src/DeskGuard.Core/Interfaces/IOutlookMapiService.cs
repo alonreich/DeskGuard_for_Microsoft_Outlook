@@ -39,6 +39,7 @@ public interface IOutlookMapiService : IDisposable
     event Action<EmailRecord>? EmailScanned;
     event Action<string>? LogProgress;
     event Action<string, string>? EngineStatusChanged;
+    event Action<int, int>? SweepProgress;
 
     bool IsConnected { get; }
     bool IsWatching { get; }

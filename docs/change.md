@@ -25,6 +25,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.6] - 2026-10-27
+
+### Added
+- Live sweep progress tracking event (`SweepProgress`) on `IOutlookMapiService` and `OutlookMapiService`, dispatching real-time `outlook-scan-update` IPC messages to WebView2 with current item count and processed volume.
+- Sender extraction (`PrSentRepresentingNameW`) in `OutlookMailboxCrawler.ReadFolderItems` and `DuplicateItem.Sender` field propagation.
+- Double-click item activation and explicit "Open" action button in `ui_duplicates.js` allowing users to jump directly to original emails in Microsoft Outlook via `window.securityApi.openEmail`.
+- Modal focus trap and focus restoration in `ui_main.js` (`openModal`, `closeModal`) with `Tab` / `Shift+Tab` cycling and previous element restoration.
+- Keyboard navigation support (`Enter` / `Space`) for sidebar navigation tabs with `role="tab"` and `aria-selected` status updates.
+- Accessible ARIA dialog semantics (`role="dialog"`, `aria-modal="true"`, `aria-labelledby`) across all 7 application modal dialogs (`index.html`).
+- Visible `:focus-visible` styling in `style.css` for buttons, navigation tabs, stat cards, inputs, and close controls.
+- Accessible `aria-label` attributes for `#vault-search-input`, `#vault-from-input`, and `#vault-search-box`.
+
+### Changed
+- Redesigned Duplicate Email Discovery grid layout with 7 balanced columns: Date Received (135px), Subject (minmax 180px, 1.5fr), Sender (minmax 140px, 1fr), Size (75px), Duplicate Location pill (minmax 120px, 1fr), Survivor Protection badge (minmax 160px, 1.2fr), and Action button (85px).
+- Adjusted activity feed timestamp (`.activity-ts`) and message text (`.activity-stream`, `.activity-msg`) contrast colors to meet WCAG 2.2 AA standards (4.8:1 and 6.2:1 against `#080a11`).
+- Replaced blocking browser `window.alert()` and `window.confirm()` calls across all UI modules with non-blocking toast notifications (`window.showNotification`) and styled confirmation modals (`window.showConfirm`).
+- `start-full-scan` now crawls all historical mailbox folders without date restriction by passing `DateTime.MinValue` to `RunSweepAsync`, resolving the issue where mailbox crawling stopped at 555 recent emails and ignored historical/archive stores.
+
+### Fixed
+- Resolved scan stopping at 555 emails: primary mailbox recent filter restriction (`AddDays(-30)`) previously caused `RunSweepAsync` to crawl only recent emails while ignoring historical archive stores (including PST stores with 70,000+ emails). Full audit now crawls all stores unbounded and streams live progress updates.
+- Fixed `get-forensics` IPC handler in `DashboardWindow.cs` throwing `System.InvalidOperationException` by accepting polymorphic string or object payloads containing `entryId`, `fingerprint`, or `id`.
+- Fixed missing `duplicate-update` event emission in `DashboardWindow.cs:scan-duplicates`, which previously caused the duplicate discovery UI to remain stuck on scanning spinners.
+- Fixed `window.deleteIncident` in `ui_list.js`: now removes deleted item from `AppState.stats`, updates counters, clears detail panel if selected, and displays confirmation toast.
+- Fixed settings modal silently dropping unsaved changes on backdrop click or `Escape` key by introducing dirty state checking (`window.settingsDirty`) and confirmation prompt before closing.
+- Fixed Scorched Earth and Safe Upgrade resets in `ui_reset.js` falling back to raw browser `confirm()` by properly exporting `window.showConfirmModal` and requiring typed `"RESET"` keyword confirmation.
+- Fixed "Reset Factory Defaults" in `ui_engines.js` immediately wiping custom engine weights without user confirmation.
+---
+
 ## [1.0.5] - 2026-10-27
 
 ### Added

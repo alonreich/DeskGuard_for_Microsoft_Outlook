@@ -20,6 +20,9 @@ public sealed class CrawledEmailSummary
     public string EntryId { get; set; } = string.Empty;
     public string StoreId { get; set; } = string.Empty;
     public string MessageId { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string Sender { get; set; } = string.Empty;
+    public string Timestamp { get; set; } = string.Empty;
     public long Size { get; set; }
     public string FolderPath { get; set; } = string.Empty;
     public bool IsSent { get; set; }
@@ -183,6 +186,9 @@ public static class OutlookMailboxCrawler
             columns.Add(MapiPropertyTags.ToPropTagUrl(MapiPropertyTags.PrMessageClass));
             columns.Add(MapiPropertyTags.ToPropTagUrl(MapiPropertyTags.PrInternetMessageId));
             columns.Add(MapiPropertyTags.ToPropTagUrl(MapiPropertyTags.PrMessageSize));
+            columns.Add(MapiPropertyTags.ToPropTagUrl(MapiPropertyTags.PrSubjectW));
+            columns.Add(MapiPropertyTags.ToPropTagUrl(MapiPropertyTags.PrSentRepresentingNameW));
+            columns.Add(MapiPropertyTags.ToPropTagUrl(MapiPropertyTags.PrMessageDeliveryTime));
 
             while (!table.EndOfTable)
             {
@@ -202,6 +208,15 @@ public static class OutlookMailboxCrawler
                     string entryId = rawEid is byte[] b ? Convert.ToHexString(b) : (rawEid as string ?? string.Empty);
                     string msgId = row[3] as string ?? string.Empty;
                     long size = Convert.ToInt64(row[4] ?? 0);
+                    string subject = row[5] as string ?? string.Empty;
+                    string sender = row[6] as string ?? string.Empty;
+                    string ts = string.Empty;
+                    try
+                    {
+                        if (row[7] is DateTime dt) ts = dt.ToString("yyyy-MM-dd HH:mm:ss");
+                        else if (row[7] != null) ts = row[7].ToString() ?? string.Empty;
+                    }
+                    catch { }
 
                     if (!string.IsNullOrEmpty(entryId))
                     {
@@ -210,6 +225,9 @@ public static class OutlookMailboxCrawler
                             EntryId = entryId,
                             StoreId = folderEntry.StoreId,
                             MessageId = msgId,
+                            Subject = subject,
+                            Sender = sender,
+                            Timestamp = ts,
                             Size = size,
                             FolderPath = folderEntry.FolderName,
                             IsSent = folderEntry.IsSent

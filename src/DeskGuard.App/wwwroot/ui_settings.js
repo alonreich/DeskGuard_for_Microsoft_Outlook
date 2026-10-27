@@ -255,10 +255,12 @@ SecurityUI.Settings = (function() {
 
         updateIntelExplainer(currentIntelLevel);
 
+        window.settingsDirty = false;
         const unsavedInd = document.getElementById('settings-unsaved-indicator');
         if (unsavedInd) unsavedInd.style.display = 'none';
 
         function markUnsaved() {
+            window.settingsDirty = true;
             if (unsavedInd) unsavedInd.style.display = 'inline-block';
         }
 
@@ -300,13 +302,21 @@ SecurityUI.Settings = (function() {
                 await api.setVTKey(document.getElementById('cfg-vtkey').value);
                 await api.setThreatIntelLevel(parseInt(document.getElementById('cfg-intel-level').value));
 
+                window.settingsDirty = false;
                 if (unsavedInd) unsavedInd.style.display = 'none';
                 window.addLog(`Security policy saved: Boot ${startupEnabled ? '[ON]' : '[OFF]'} | OnAccess ${onAccessEnabled ? '[ON]' : '[OFF]'} | LightScan ${historyScanEnabled ? '[ON]' : '[OFF]'} | DeepHistory ${deepHistoryScanEnabled ? '[ON]' : '[OFF]'}`);
-                window.closeSettings();
+                if (typeof window.showNotification === 'function') {
+                    window.showNotification("Settings saved successfully.");
+                }
+                window.closeSettings(true);
             } catch (err) {
                 console.error("Save Error:", err);
                 window.addLog("Error saving settings: " + err.message);
-                alert("Failed to save settings. Please check the logs.");
+                if (typeof window.showNotification === 'function') {
+                    window.showNotification("Failed to save settings. Please check the logs.", true);
+                } else {
+                    alert("Failed to save settings. Please check the logs.");
+                }
             } finally {
                 if (btnBottom) { btnBottom.innerHTML = oldBottom; btnBottom.disabled = false; }
                 if (btnTop) { btnTop.innerHTML = oldTop; btnTop.disabled = false; }

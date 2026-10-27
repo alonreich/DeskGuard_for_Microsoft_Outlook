@@ -1,4 +1,4 @@
-﻿window.escapeHtml = window.escapeHtml || function(str) {
+window.escapeHtml = window.escapeHtml || function(str) {
     if (str === null || str === undefined) return '';
     if (typeof str !== 'string') str = String(str);
     return str
@@ -20,14 +20,38 @@ SecurityUI.Duplicates = (function() {
     window.lastDuplicates = [];
     window.setDuplicateIncludeJunk = (v) => { includeJunk = !!v; };
 
+    window.openDuplicateInOutlook = async (entryId) => {
+        if (!entryId) return;
+        try {
+            if (typeof window.showNotification === 'function') {
+                window.showNotification("Opening original email in Microsoft Outlook...");
+            }
+            const res = await api.openEmail({ entryId: entryId });
+            if (!res || (!res.ok && !res.success)) {
+                if (typeof window.showNotification === 'function') {
+                    window.showNotification("Could not open in Outlook: " + ((res && res.error) || "Email not found in mailbox."), true);
+                }
+            }
+        } catch (err) {
+            if (typeof window.showNotification === 'function') {
+                window.showNotification("Error launching Outlook: " + err.message, true);
+            }
+        }
+    };
+
     function createDuplicateRow() {
         const div = document.createElement('div');
         div.className = 'list-item duplicate-grid virtual-row';
+        div.style.cursor = 'pointer';
+        div.title = 'Double-click to open in Microsoft Outlook';
 
         const timeEl = document.createElement('div');
         timeEl.style.fontSize = '0.75rem';
         timeEl.style.color = 'var(--muted)';
         timeEl.style.fontFamily = 'monospace';
+        timeEl.style.overflow = 'hidden';
+        timeEl.style.textOverflow = 'ellipsis';
+        timeEl.style.whiteSpace = 'nowrap';
 
         const subjEl = document.createElement('div');
         subjEl.style.fontWeight = '500';
@@ -35,6 +59,13 @@ SecurityUI.Duplicates = (function() {
         subjEl.style.overflow = 'hidden';
         subjEl.style.textOverflow = 'ellipsis';
         subjEl.style.color = 'var(--text)';
+
+        const senderEl = document.createElement('div');
+        senderEl.style.fontSize = '0.75rem';
+        senderEl.style.whiteSpace = 'nowrap';
+        senderEl.style.overflow = 'hidden';
+        senderEl.style.textOverflow = 'ellipsis';
+        senderEl.style.color = 'var(--muted)';
 
         const sizeEl = document.createElement('div');
         sizeEl.style.fontSize = '0.75rem';
@@ -45,39 +76,75 @@ SecurityUI.Duplicates = (function() {
         folderEl.style.whiteSpace = 'nowrap';
         folderEl.style.overflow = 'hidden';
         folderEl.style.textOverflow = 'ellipsis';
-        folderEl.style.color = 'var(--muted)';
 
         const survivorEl = document.createElement('div');
         survivorEl.style.fontSize = '0.75rem';
         survivorEl.style.whiteSpace = 'nowrap';
         survivorEl.style.overflow = 'hidden';
         survivorEl.style.textOverflow = 'ellipsis';
-        survivorEl.style.color = 'var(--accent-green, #4ade80)';
+
+        const actionEl = document.createElement('div');
+        actionEl.style.textAlign = 'center';
+        const openBtn = document.createElement('button');
+        openBtn.className = 'duplicate-open-btn';
+        openBtn.textContent = 'Open';
+        openBtn.title = 'Open in Microsoft Outlook';
+        actionEl.appendChild(openBtn);
 
         div.appendChild(timeEl);
         div.appendChild(subjEl);
+        div.appendChild(senderEl);
         div.appendChild(sizeEl);
         div.appendChild(folderEl);
         div.appendChild(survivorEl);
+        div.appendChild(actionEl);
 
-        div._cells = { timeEl, subjEl, sizeEl, folderEl, survivorEl };
+        div._cells = { timeEl, subjEl, senderEl, sizeEl, folderEl, survivorEl, openBtn };
+
+        div.ondblclick = () => {
+            const id = div.getAttribute('data-id');
+            if (id) window.openDuplicateInOutlook(id);
+        };
+
+        openBtn.onclick = (e) => {
+            e.stopPropagation();
+            const id = div.getAttribute('data-id');
+            if (id) window.openDuplicateInOutlook(id);
+        };
+
         return div;
     }
 
     function updateDuplicateRow(div, item) {
         const cells = div._cells;
+        div.setAttribute('data-id', item.entryId || '');
+
         const ts = item.timestamp || '';
-        if (cells.timeEl.textContent !== ts) cells.timeEl.textContent = ts;
-        const subj = item.subject || 'No Subject';
-        if (cells.subjEl.textContent !== subj) cells.subjEl.textContent = subj;
+        if (cells.timeEl.textContent !== ts) {
+            cells.timeEl.textContent = ts;
+            cells.timeEl.title = ts;
+        }
+
+        const subj = item.subject || '(No Subject)';
+        if (cells.subjEl.textContent !== subj) {
+            cells.subjEl.textContent = subj;
+            cells.subjEl.title = subj;
+        }
+
+        const sender = item.sender || '(Unknown Sender)';
+        if (cells.senderEl.textContent !== sender) {
+            cells.senderEl.textContent = sender;
+            cells.senderEl.title = sender;
+        }
+
         const sz = item.size ? `${(item.size / 1024).toFixed(1)} KB` : '0 KB';
         if (cells.sizeEl.textContent !== sz) cells.sizeEl.textContent = sz;
-        const fld = item.folder || '';
-        if (cells.folderEl.textContent !== fld) cells.folderEl.textContent = fld;
+
+        const fld = item.folder || 'Mailbox';
+        cells.folderEl.innerHTML = `<span class="badge" style="background: rgba(255, 170, 68, 0.12); color: var(--warn); border: 1px solid rgba(255, 170, 68, 0.3); font-size: 0.72rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: inline-block;" title="Duplicate copy in: ${window.escapeHtml(fld)}">${window.escapeHtml(fld)}</span>`;
+
         const survFld = item.survivorFolder || (item.survivor && item.survivor.folder) || 'Inbox';
-        const survText = `${survFld} (Survivor Preserved)`;
-        if (cells.survivorEl.textContent !== survText) cells.survivorEl.textContent = survText;
-        div.setAttribute('data-id', item.entryId || '');
+        cells.survivorEl.innerHTML = `<span class="badge badge-safe" style="font-size: 0.72rem; display: inline-flex; align-items: center; gap: 4px;" title="Original survivor preserved in: ${window.escapeHtml(survFld)}">🛡️ ${window.escapeHtml(survFld)} (Protected)</span>`;
     }
 
     function renderInitialView(errorMsg = null) {
@@ -98,7 +165,7 @@ SecurityUI.Duplicates = (function() {
                     <div class="stat-card" style="padding: 16px;">
                         <div class="stat-label">How copies are matched</div>
                         <div class="stat-value" style="color: var(--accent); font-size: 1.15rem;">Same Message-ID</div>
-                        <div style="font-size: 0.75rem; color: var(--muted); margin-top: 6px;">Checked in the search vault: takes seconds, Outlook is not touched</div>
+                        <div style="font-size: 0.75rem; color: var(--muted); margin-top: 6px;">Checked across MAPI stores & local vault</div>
                     </div>
                     <div class="stat-card" style="padding: 16px;">
                         <div class="stat-label">Survivor Protection</div>
@@ -120,7 +187,7 @@ SecurityUI.Duplicates = (function() {
                     </div>
                     <h3 style="margin: 0 0 8px; font-size: 1.15rem; color: var(--text); font-weight: 600;">Mailbox Redundancy Discovery</h3>
                     <p style="color: var(--muted); max-width: 540px; font-size: 0.85rem; line-height: 1.6; margin: 0 0 24px;">
-                        Scan your Outlook stores to detect identical email copies cluttering your mailbox. Candidate duplicates are coupled with their definitive survivors so you can safely isolate or purge redundant items without risking original emails.
+                        Scan your Outlook stores to detect identical email copies cluttering your mailbox. Candidate duplicates are coupled with their definitive survivors so you can safely isolate or purge redundant items without risking original emails. Double-click any row to jump to the original email in Outlook.
                     </p>
                     <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); margin-bottom: 16px;" title="Junk Email copies are usually not worth keeping, so they are left out unless you tick this.">
                         <input type="checkbox" id="dup-include-junk" ${includeJunk ? 'checked' : ''} onchange="window.setDuplicateIncludeJunk(this.checked)">
@@ -188,21 +255,24 @@ SecurityUI.Duplicates = (function() {
                 <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-shrink: 0;">
                     <div>
                         <h2 style="margin: 0; font-size: 1.1rem;">${items.length} Redundant Emails Found</h2>
-                        ${data.savedAt ? `<div style="font-size: 0.72rem; color: var(--muted); margin-top: 2px;">${data.partial ? 'Partial result (scan was paused)' : 'Result of the last scan'}, saved ${window.escapeHtml(new Date(data.savedAt).toLocaleString())}. Re-Scan to refresh.</div>` : ''}
-                        ${data.indexed !== undefined ? `<div style="font-size: 0.72rem; color: var(--muted); margin-top: 2px;">Checked ${Number(data.indexed).toLocaleString()} indexed emails.${data.indexing ? ' The search indexer is still reading your mailbox; re-scan later to include the rest.' : ''} The kept copy is the one in Inbox/Sent, then your main mailbox.</div>` : ''}
+                        <div style="font-size: 0.74rem; color: var(--muted); margin-top: 3px;">
+                            Double-click any row to open the original email in Outlook. The survivor copy is preserved untouched.
+                        </div>
                     </div>
                     <div style="display: flex; gap: 10px;">
                         <button onclick="window.startDuplicateDiscovery()" style="background: var(--surface-mid); border: 1px solid var(--border);">Re-Scan</button>
-                        <button class="primary" onclick="cleanDuplicatesSafe()" ${items.length === 0 ? 'disabled' : ''}>Move to Deleted Items (Safe)</button>
-                        <button class="danger" onclick="cleanDuplicatesPurge()" ${items.length === 0 ? 'disabled' : ''}>Permanent Purge</button>
+                        <button id="btn-clean-safe" class="primary" onclick="cleanDuplicatesSafe()" ${items.length === 0 ? 'disabled' : ''}>Move to Deleted Items (Safe)</button>
+                        <button id="btn-clean-purge" class="danger" onclick="cleanDuplicatesPurge()" ${items.length === 0 ? 'disabled' : ''}>Permanent Purge</button>
                     </div>
                 </div>
                 <div class="list-header duplicate-grid" style="flex-shrink: 0;">
-                    <div>Date</div>
+                    <div>Date Received</div>
                     <div>Subject</div>
+                    <div>Sender</div>
                     <div>Size</div>
                     <div>Duplicate Location</div>
-                    <div>Survivor Status</div>
+                    <div>Survivor Protection</div>
+                    <div style="text-align: center;">Action</div>
                 </div>
                 <div id="duplicate-list" class="list-container" style="flex: 1; min-height: 0; position: relative; overflow-y: auto;">
                 </div>
@@ -279,47 +349,88 @@ SecurityUI.Duplicates = (function() {
 
     window.cleanDuplicatesSafe = async () => {
         if (!duplicateItems || duplicateItems.length === 0) return;
-        window.showConfirm(
+        const confirmFn = window.showConfirmModal || ((title, msg, fn) => {
+            if (window.showConfirm) window.showConfirm(title, msg, fn);
+        });
+
+        confirmFn(
             "Move Duplicates to Deleted Items",
             `This will safely move ${duplicateItems.length} redundant email copies to Deleted Items. Pre-flight validation will ensure that original survivor emails remain untouched in their current folders. Proceed?`,
-            null,
             async () => {
-                const res = await api.deleteDuplicates({ items: duplicateItems, mode: 'safe' });
-                const success = (res && res.successCount !== undefined) ? res.successCount : ((res && res.count) || 0);
-                const skipped = (res && res.skippedCount) || 0;
-                let msg = `Clean-up Complete:\n- Successfully isolated: ${success} redundant copies.`;
-                if (skipped > 0) {
-                    msg += `\n- Skipped (Protected): ${skipped} items (survivors missing or modified).`;
+                const btn = document.getElementById('btn-clean-safe');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.textContent = "Processing...";
                 }
-                alert(msg);
-                window.lastDuplicates = [];
-                duplicateItems = [];
-                if (duplicateVirtualList) duplicateVirtualList.setItems([], true);
-                render({ status: 'Finished', items: [] });
+                try {
+                    const res = await api.deleteDuplicates({ items: duplicateItems, mode: 'safe' });
+                    const success = (res && res.successCount !== undefined) ? res.successCount : ((res && res.count) || 0);
+                    const skipped = (res && res.skippedCount) || 0;
+                    let msg = `Clean-up Complete: Successfully isolated ${success} redundant copies.`;
+                    if (skipped > 0) {
+                        msg += ` ${skipped} items protected (survivors missing or modified).`;
+                    }
+                    if (typeof window.showNotification === 'function') {
+                        window.showNotification(msg, false);
+                    }
+                    window.lastDuplicates = [];
+                    duplicateItems = [];
+                    if (duplicateVirtualList) duplicateVirtualList.setItems([], true);
+                    render({ status: 'Finished', items: [] });
+                } catch (err) {
+                    if (typeof window.showNotification === 'function') {
+                        window.showNotification("Error isolating duplicates: " + err.message, true);
+                    }
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = "Move to Deleted Items (Safe)";
+                    }
+                }
             }
         );
     };
 
     window.cleanDuplicatesPurge = async () => {
         if (!duplicateItems || duplicateItems.length === 0) return;
-        window.showConfirm(
+        const confirmFn = window.showConfirmModal || ((title, msg, fn, kw) => {
+            if (window.showConfirm) window.showConfirm(title, msg, kw, fn);
+        });
+
+        confirmFn(
             "Permanent Purge of Duplicates",
             `WARNING: This will permanently delete ${duplicateItems.length} redundant email copies from Outlook. Pre-flight validation will strictly verify that each original survivor exists before any duplicate is deleted. Type PURGE to confirm.`,
-            "PURGE",
             async () => {
-                const res = await api.deleteDuplicates({ items: duplicateItems, mode: 'purge' });
-                const success = (res && res.successCount !== undefined) ? res.successCount : ((res && res.count) || 0);
-                const skipped = (res && res.skippedCount) || 0;
-                let msg = `Permanent Purge Complete:\n- Successfully deleted: ${success} redundant copies.`;
-                if (skipped > 0) {
-                    msg += `\n- Skipped (Protected): ${skipped} items (survivors missing or modified).`;
+                const btn = document.getElementById('btn-clean-purge');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.textContent = "Purging...";
                 }
-                alert(msg);
-                window.lastDuplicates = [];
-                duplicateItems = [];
-                if (duplicateVirtualList) duplicateVirtualList.setItems([], true);
-                render({ status: 'Finished', items: [] });
-            }
+                try {
+                    const res = await api.deleteDuplicates({ items: duplicateItems, mode: 'purge' });
+                    const success = (res && res.successCount !== undefined) ? res.successCount : ((res && res.count) || 0);
+                    const skipped = (res && res.skippedCount) || 0;
+                    let msg = `Permanent Purge Complete: Successfully deleted ${success} redundant copies.`;
+                    if (skipped > 0) {
+                        msg += ` ${skipped} items protected (survivors missing or modified).`;
+                    }
+                    if (typeof window.showNotification === 'function') {
+                        window.showNotification(msg, false);
+                    }
+                    window.lastDuplicates = [];
+                    duplicateItems = [];
+                    if (duplicateVirtualList) duplicateVirtualList.setItems([], true);
+                    render({ status: 'Finished', items: [] });
+                } catch (err) {
+                    if (typeof window.showNotification === 'function') {
+                        window.showNotification("Error purging duplicates: " + err.message, true);
+                    }
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = "Permanent Purge";
+                    }
+                }
+            },
+            "PURGE"
         );
     };
 

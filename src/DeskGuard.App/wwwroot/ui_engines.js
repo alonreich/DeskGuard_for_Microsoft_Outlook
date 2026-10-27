@@ -206,10 +206,21 @@ SecurityUI.Engines = (function() {
 
         const resetBtn = document.getElementById('reset-sensitivity-defaults');
         if (resetBtn) resetBtn.onclick = () => {
-            loadFrom(DEFAULTS);
-            render();
-            if (typeof window.showNotification === 'function') {
-                window.showNotification('Anti-spam engine weights reset to factory defaults.');
+            const doReset = () => {
+                loadFrom(DEFAULTS);
+                render();
+                if (typeof window.showNotification === 'function') {
+                    window.showNotification('Anti-spam engine weights reset to factory defaults.');
+                }
+            };
+            if (typeof window.showConfirm === 'function') {
+                window.showConfirm(
+                    'Reset Engine Weights',
+                    'Are you sure you want to restore all engine weights and sensitivity thresholds to their factory defaults? Any customized weights will be replaced.',
+                    doReset
+                );
+            } else {
+                doReset();
             }
         };
     }

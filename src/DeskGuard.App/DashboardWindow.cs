@@ -674,8 +674,9 @@ internal sealed partial class DashboardWindow : IDisposable
                 {
                     try
                     {
-                        PostEvent("outlook-scan-update", new { status = "SCANNING", count = 0, total = 100 });
-                        await _mapiService.RunSweepAsync(DateTime.UtcNow.AddDays(-30), _cts.Token);
+                        PostEvent("outlook-scan-update", new { status = "SCANNING", count = 0, total = 0 });
+                        PostEvent("live-log", "Starting deep mailbox audit across all historical items and folders...");
+                        await _mapiService.RunSweepAsync(DateTime.MinValue, _cts.Token);
                         PostEvent("outlook-scan-update", new { status = "Finished" });
 
                         var statsDict = _vault.GetAllCategorizedEmails(100);
@@ -751,7 +752,7 @@ internal sealed partial class DashboardWindow : IDisposable
                 string oEntryId = payload.TryGetProperty("entryId", out var oe) ? oe.GetString() ?? string.Empty : string.Empty;
                 string oStoreId = payload.TryGetProperty("storeId", out var os) ? os.GetString() ?? string.Empty : string.Empty;
                 bool opened = await _mapiService.OpenInOutlookAsync(oEntryId, oStoreId, null, null, _cts.Token);
-                return new { ok = opened };
+                return new { ok = opened, success = opened };
 
             case "verify-existence":
                 return new { ok = true };
@@ -780,9 +781,31 @@ internal sealed partial class DashboardWindow : IDisposable
                 return await Task.Run(() => (object)_vault.GetSenderSuggestions(prefix, 10));
 
             case "scan-duplicates":
-                var dupRes = await _mapiService.ScanDuplicatesAsync(_cts.Token);
-                _vault.SaveDuplicates(dupRes.Items, dupRes.Paused ? "Paused" : "Finished");
-                return new { items = dupRes.Items, count = dupRes.ScannedCount };
+                bool includeJunk = false;
+                if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("includeJunk", out var ijProp))
+                {
+                    includeJunk = ijProp.GetBoolean();
+                }
+
+                var (vaultDups, indexedCount) = _vault.FindDuplicates(includeJunk);
+                List<DuplicateItem> allDups;
+                int totalScanned;
+
+                if (vaultDups.Count > 0 || indexedCount > 0)
+                {
+                    allDups = vaultDups;
+                    totalScanned = indexedCount;
+                }
+                else
+                {
+                    var dupRes = await _mapiService.ScanDuplicatesAsync(_cts.Token);
+                    allDups = dupRes.Items;
+                    totalScanned = dupRes.ScannedCount;
+                }
+
+                _vault.SaveDuplicates(allDups, "Finished");
+                PostEvent("duplicate-update", new { status = "Finished", items = allDups, scanned = totalScanned, found = allDups.Count });
+                return new { ok = true, items = allDups, count = totalScanned };
 
             case "get-saved-duplicates":
                 return await Task.Run(() =>
@@ -806,7 +829,20 @@ internal sealed partial class DashboardWindow : IDisposable
                 return await Task.Run(() => (object)_vault.GetEvents(evLimit));
 
             case "get-forensics":
-                string forId = payload.GetString() ?? string.Empty;
+                string forId = string.Empty;
+                if (payload.ValueKind == JsonValueKind.String)
+                {
+                    forId = payload.GetString() ?? string.Empty;
+                }
+                else if (payload.ValueKind == JsonValueKind.Object)
+                {
+                    if (payload.TryGetProperty("entryId", out var ep) && ep.ValueKind == JsonValueKind.String)
+                        forId = ep.GetString() ?? string.Empty;
+                    else if (payload.TryGetProperty("fingerprint", out var fingerProp) && fingerProp.ValueKind == JsonValueKind.String)
+                        forId = fingerProp.GetString() ?? string.Empty;
+                    else if (payload.TryGetProperty("id", out var ip) && ip.ValueKind == JsonValueKind.String)
+                        forId = ip.GetString() ?? string.Empty;
+                }
                 return await Task.Run(() =>
                 {
                     var emailRec = _vault.GetEmailById(forId);

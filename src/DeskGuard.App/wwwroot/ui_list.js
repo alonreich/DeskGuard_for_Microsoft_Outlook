@@ -324,7 +324,7 @@ function updateIncidentRowElement(div, item, index) {
                     () => {}
                 );
             } else {
-                alert(explStory);
+                if (typeof window.showNotification === "function") window.showNotification(explStory); else alert(explStory);
             }
         };
     } else {
@@ -520,10 +520,10 @@ window.selectIncident = async (item) => {
                     messageId: item.messageId || ''
                 });
                 if (res && !res.success) {
-                    alert("Could not open in Outlook: " + (res.error || "Item not found in store or Outlook COM unavailable."));
+                    if (typeof window.showNotification === "function") window.showNotification("Could not open in Outlook: " + ((res && res.error) || "Item not found in store or Outlook COM unavailable."), true); else alert("Could not open in Outlook: " + ((res && res.error) || "Item not found in store or Outlook COM unavailable."));
                 }
             } catch (err) {
-                alert("Error launching email in Outlook: " + err.message);
+                if (typeof window.showNotification === "function") window.showNotification("Error launching email in Outlook: " + err.message, true); else alert("Error launching email in Outlook: " + err.message);
             } finally {
                 btnOpenOutlook.disabled = false;
                 btnOpenOutlook.innerHTML = origContent;
@@ -643,14 +643,14 @@ window.releaseIncident = async (entryId, fingerprint, trustSenderAddress) => {
                     </div>`;
             }
         } else {
-            alert("Release failed: " + ((res && res.error) || "Outlook could not locate or move the item."));
+            if (typeof window.showNotification === "function") window.showNotification("Release failed: " + ((res && res.error) || "Outlook could not locate or move the item."), true); else alert("Release failed: " + ((res && res.error) || "Outlook could not locate or move the item."));
             if (btn) {
                 btn.disabled = false;
                 btn.textContent = "Release to Inbox";
             }
         }
     } catch (err) {
-        alert("Release error: " + err.message);
+        if (typeof window.showNotification === "function") window.showNotification("Release error: " + err.message, true); else alert("Release error: " + err.message);
         if (btn) {
             btn.disabled = false;
             btn.textContent = "Release to Inbox";
@@ -677,14 +677,14 @@ window.quarantineIncident = async (entryId, fingerprint) => {
                     </div>`;
             }
         } else {
-            alert("Quarantine failed: " + ((res && res.error) || "Outlook could not locate or move the item."));
+            if (typeof window.showNotification === "function") window.showNotification("Quarantine failed: " + ((res && res.error) || "Outlook could not locate or move the item."), true); else alert("Quarantine failed: " + ((res && res.error) || "Outlook could not locate or move the item."));
             if (btn) {
                 btn.disabled = false;
                 btn.textContent = "Quarantine";
             }
         }
     } catch (err) {
-        alert("Quarantine error: " + err.message);
+        if (typeof window.showNotification === "function") window.showNotification("Quarantine error: " + err.message, true); else alert("Quarantine error: " + err.message);
         if (btn) {
             btn.disabled = false;
             btn.textContent = "Quarantine";
@@ -778,14 +778,14 @@ window.cloudScanIncident = async (entryId) => {
         } else if (res && (res.code === 'NO_API_KEY' || (res.error && res.error.includes('API key')))) {
             window.openVirusTotalSetupWizard(entryId);
         } else {
-            alert("VirusTotal notice: " + ((res && (res.error || (res.data && res.data.error))) || "No threat data available or item not found in database. Check your VirusTotal API key in Settings."));
+            if (typeof window.showNotification === "function") window.showNotification("VirusTotal notice: " + ((res && (res.error || (res.data && res.data.error))) || "No threat data available or item not found in database. Check your VirusTotal API key in Settings."), true); else alert("VirusTotal notice: " + ((res && (res.error || (res.data && res.data.error))) || "No threat data available or item not found in database. Check your VirusTotal API key in Settings."));
         }
     } catch (err) {
         if (btn) {
             btn.disabled = false;
             btn.textContent = "VirusTotal Audit";
         }
-        alert("VirusTotal query error: " + err.message);
+        if (typeof window.showNotification === "function") window.showNotification("VirusTotal query error: " + err.message, true); else alert("VirusTotal query error: " + err.message);
     }
 };
 
@@ -858,7 +858,7 @@ window.verifyCurrentList = async () => {
     const cat = window.AppState.currentCategory;
     const items = window.AppState.stats[cat] || [];
     if (items.length === 0) {
-        alert("No items in " + cat + " to verify.");
+        if (typeof window.showNotification === "function") window.showNotification("No items in " + cat + " to verify."); else alert("No items in " + cat + " to verify.");
         return;
     }
     if (btn) {
@@ -872,22 +872,67 @@ window.verifyCurrentList = async () => {
             btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"></path></svg> Verify List`;
         }
         if (res && res.removedCount > 0) {
-            alert(`Verification complete: Pruned ${res.removedCount} missing item(s) from Outlook.`);
+            if (typeof window.showNotification === "function") window.showNotification(`Verification complete: Pruned ${res.removedCount} missing item(s) from Outlook.`); else alert(`Verification complete: Pruned ${res.removedCount} missing item(s) from Outlook.`);
         } else {
-            alert(`Verification complete: All ${items.length} items in ${cat} confirmed present in Outlook.`);
+            if (typeof window.showNotification === "function") window.showNotification(`Verification complete: All ${items.length} items in ${cat} confirmed present in Outlook.`); else alert(`Verification complete: All ${items.length} items in ${cat} confirmed present in Outlook.`);
         }
     } catch (err) {
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"></path></svg> Verify List`;
         }
-        alert("Verification error: " + err.message);
+        if (typeof window.showNotification === "function") window.showNotification("Verification error: " + err.message, true); else alert("Verification error: " + err.message);
     }
 };
 
 window.deleteIncident = (id) => {
     window.showConfirm("Delete Email", "This will permanently delete this email from Outlook. Proceed?", "DELETE", async () => {
-        await window.securityApi.deleteEmail({ entryIds: [id] });
+        try {
+            await window.securityApi.deleteEmail({ entryIds: [id] });
+
+            // Remove from AppState.stats
+            let deletedCat = null;
+            ['malicious', 'suspicious', 'spam', 'safe'].forEach(cat => {
+                if (window.AppState.stats && window.AppState.stats[cat]) {
+                    const idx = window.AppState.stats[cat].findIndex(item => (item.entryId || item.id) === id);
+                    if (idx !== -1) {
+                        window.AppState.stats[cat].splice(idx, 1);
+                        deletedCat = cat;
+                    }
+                }
+            });
+
+            // Decrement counts
+            if (deletedCat && window.AppState.counts) {
+                if (window.AppState.counts[deletedCat] > 0) window.AppState.counts[deletedCat]--;
+                if (window.AppState.counts.total > 0) window.AppState.counts.total--;
+            }
+
+            // Clear detail panel if this incident was selected
+            if (window.selectedIncidentId === id) {
+                window.selectedIncidentId = null;
+                const detailPanel = document.getElementById('detail-panel');
+                if (detailPanel) {
+                    detailPanel.innerHTML = `
+                        <div class="empty-state">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="1.5"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                            <p>Select an incident to view forensic details</p>
+                        </div>
+                    `;
+                }
+            }
+
+            // Re-render current list & counters
+            window.AppState.renderDashboard(false);
+
+            if (typeof window.showNotification === 'function') {
+                window.showNotification("Email deleted successfully.");
+            }
+        } catch (err) {
+            if (typeof window.showNotification === 'function') {
+                window.showNotification("Failed to delete email: " + err.message, true);
+            }
+        }
     });
 };
 

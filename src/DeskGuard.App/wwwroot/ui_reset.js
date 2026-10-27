@@ -3,39 +3,33 @@ SecurityUI.Reset = (function() {
     const api = window.securityApi;
 
     async function nuclear() {
-        if (!window.showConfirmModal) {
-            if (!confirm('CRITICAL SCORCHED EARTH RESET: This will permanently wipe ALL settings, API keys, blacklists, whitelists, and scan history. Proceed?')) return;
-            if (!confirm('FINAL WARNING: This cannot be undone. Wipe everything and restart?')) return;
-            window.addLog('Initiating Scorched Earth Factory Reset...');
-            await api.resetApp('scorched');
-            return;
-        }
+        const confirmFn = window.showConfirmModal || ((title, msg, fn, kw) => {
+            if (window.showConfirm) window.showConfirm(title, msg, kw, fn);
+        });
 
-        window.showConfirmModal(
+        confirmFn(
             'SCORCHED EARTH FACTORY RESET',
-            'This action will permanently wipe ALL security configurations, VirusTotal API keys, blacklists, forensic snapshots, whitelists, and scan database. The Windows startup run key will also be uninstalled. Do you wish to proceed?',
+            'This action will permanently wipe ALL security configurations, VirusTotal API keys, blacklists, forensic snapshots, whitelists, and scan database. The Windows startup run key will also be uninstalled. To proceed, type RESET below.',
             async () => {
                 window.addLog('Initiating Scorched Earth Factory Reset...');
                 if (window.showNotification) window.showNotification('SCORCHED EARTH WIPE INITIATED: All configuration and data erased. Application will restart now...', true);
                 await api.resetApp('scorched');
-            }
+            },
+            'RESET'
         );
     }
 
     async function safeUpgrade() {
-        if (!window.showConfirmModal) {
-            if (!confirm('SAFE UPGRADE / CACHE CLEANUP: This refreshes the database and clears cached mail history while PRESERVING all your settings, VirusTotal API keys, rules, and whitelists. Proceed?')) return;
-            window.addLog('Initiating Safe Upgrade / Cache Refresh...');
-            await api.resetApp('safe');
-            return;
-        }
+        const confirmFn = window.showConfirmModal || ((title, msg, fn, kw) => {
+            if (window.showConfirm) window.showConfirm(title, msg, kw, fn);
+        });
 
-        window.showConfirmModal(
+        confirmFn(
             'SAFE UPGRADE & CACHE CLEANUP',
             'This safely clears the cached email incident list and refreshes the database, while completely preserving your settings, VirusTotal API keys, custom whitelists, and security engines. The application will restart clean. Proceed?',
             async () => {
                 window.addLog('Initiating Safe Upgrade / Cache Refresh...');
-                if (window.showNotification) window.showNotification('SAFE UPGRADE INITIATED: Resetting cache while preserving your settings. Application restarting...', true);
+                if (window.showNotification) window.showNotification('SAFE UPGRADE INITIATED: Resetting cache while preserving your settings. Application restarting...', false);
                 await api.resetApp('safe');
             }
         );
