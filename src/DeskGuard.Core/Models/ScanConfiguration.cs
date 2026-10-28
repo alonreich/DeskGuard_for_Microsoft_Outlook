@@ -22,7 +22,7 @@ public sealed class ScanConfiguration
     public List<string> SpamKeywords { get; set; } = [];
     public List<string> Rubrics { get; set; } = [];
     public int ThreatIntelligenceLevel { get; set; } = 1;
-    public int ScanningSpeed { get; set; } = 50;
+    public int ScanningSpeed { get; set; } = 10;
     public string SpamDestination { get; set; } = "quarantine"; // "quarantine" or "junk"
     public bool LabelInOutlook { get; set; } = true;
     public string VtKey { get; set; } = string.Empty;

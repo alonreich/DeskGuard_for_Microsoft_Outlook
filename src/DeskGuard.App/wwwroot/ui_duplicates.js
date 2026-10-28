@@ -512,6 +512,12 @@ SecurityUI.Duplicates = (function() {
         const view = document.getElementById('duplicate-view');
         if (!data || !view) return;
 
+        if (data.error) {
+            isScanning = false;
+            renderInitialView(`Scan error: ${data.error}`);
+            return;
+        }
+
         if (data.status === 'Scanned' || data.status === 'Progress' || data.status === 'Found' || data.status === 'StoreStart') {
             isScanning = true;
             const scannedCount = data.scanned !== undefined ? data.scanned : (data.current || 0);

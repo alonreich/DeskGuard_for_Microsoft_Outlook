@@ -245,7 +245,10 @@ public static class OutlookMailboxCrawler
                 }
             }
         }
-        catch { }
+        catch (System.Exception ex)
+        {
+            DeskGuard.Core.Logging.AppLogger.Warn($"[ReadFolderItems] Error querying items in '{folderEntry.FolderName}': {ex.Message}");
+        }
         finally
         {
             ComUtils.Release(columns);

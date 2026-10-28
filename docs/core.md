@@ -20,6 +20,8 @@ src/DeskGuard.Core/
 |-- Interfaces/
 |   |-- IOutlookMapiService.cs       # Abstraction for Outlook MAPI operations
 |   `-- IVaultRepository.cs          # Abstraction for SQLite persistence and queries
+|-- Logging/
+|   `-- AppLogger.cs                 # Centralized thread-safe file logger (%LocalAppData%\DeskGuard\logs)
 |-- Models/
 |   |-- EmailRecord.cs               # Canonical email entity with score, headers, fingerprint
 |   |-- SecurityVerdict.cs           # Enum: Safe, Suspicious, Malicious, Whitelisted

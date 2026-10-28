@@ -114,7 +114,7 @@ SecurityUI.Settings = (function() {
 
                     <div style="margin-bottom: 20px; background: var(--surface-high); padding: 14px 16px; border-radius: 6px; border: 1px solid var(--border);">
                         <label for="cfg-speed" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; display: block;">Emails Scan Speed</label>
-                        <input type="range" id="cfg-speed" min="10" max="100" value="${config.scanningSpeed || 50}" style="width: 100%;">
+                        <input type="range" id="cfg-speed" min="10" max="100" value="${config.scanningSpeed !== undefined ? config.scanningSpeed : 10}" style="width: 100%;">
                         <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); margin-top: 4px;">
                             <span>Gentle (Low CPU)</span>
                             <span>Balanced</span>
@@ -271,6 +271,16 @@ SecurityUI.Settings = (function() {
                 el.addEventListener('change', markUnsaved);
             }
         });
+
+        const speedInput = document.getElementById('cfg-speed');
+        if (speedInput) {
+            speedInput.addEventListener('change', async (e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val)) {
+                    try { await api.setScanningSpeed(val); } catch (err) {}
+                }
+            });
+        }
 
         async function doSave() {
             const btnBottom = document.getElementById('save-settings-btn');

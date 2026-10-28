@@ -98,14 +98,29 @@ public sealed class OutlookMapiService : IOutlookMapiService
 
         try
         {
-            _outlookApp = ComUtils.CreateOrGetOutlook() as Application;
+            DeskGuard.Core.Logging.AppLogger.Info("[OutlookMapiService] Connecting to Outlook COM Application...");
+            object? rawApp = ComUtils.CreateOrGetOutlook();
+            if (rawApp == null)
+            {
+                _outlookApp = null;
+                _mapiNamespace = null;
+                DeskGuard.Core.Logging.AppLogger.Warn("[OutlookMapiService] CreateOrGetOutlook returned null.");
+                return;
+            }
+
+            DeskGuard.Core.Logging.AppLogger.Info($"[OutlookMapiService] CreateOrGetOutlook returned object of type: {rawApp.GetType().FullName}. Casting to Application...");
+            _outlookApp = rawApp as Application;
             if (_outlookApp != null)
             {
                 _mapiNamespace = _outlookApp.GetNamespace("MAPI");
+                int storeCount = 0;
+                try { storeCount = _mapiNamespace?.Stores?.Count ?? 0; } catch { }
+                DeskGuard.Core.Logging.AppLogger.Info($"[OutlookMapiService] Connected to Outlook successfully. Active stores: {storeCount}");
             }
             else
             {
                 _mapiNamespace = null;
+                DeskGuard.Core.Logging.AppLogger.Warn($"[OutlookMapiService] Failed to cast {rawApp.GetType().FullName} to Microsoft.Office.Interop.Outlook.Application.");
             }
         }
         catch (Exception ex)
@@ -114,7 +129,9 @@ public sealed class OutlookMapiService : IOutlookMapiService
             ComUtils.Release(_outlookApp);
             _outlookApp = null;
             _mapiNamespace = null;
-            LogProgress?.Invoke($"[OutlookMapiService] Outlook connection attempt: {ex.Message}");
+            string err = $"[OutlookMapiService] Outlook connection attempt failed: {ex.Message}";
+            LogProgress?.Invoke(err);
+            DeskGuard.Core.Logging.AppLogger.Error(err, ex);
         }
     }
 
@@ -206,33 +223,37 @@ public sealed class OutlookMapiService : IOutlookMapiService
         return _coordinator.EnqueueAsync(ct =>
         {
             EnsureOutlookConnected();
-            if (_mapiNamespace == null) return;
+            if (_mapiNamespace == null)
+            {
+                string warnMsg = "[RunSweepAsync] Sweep aborted: Outlook MAPI session is not available.";
+                LogProgress?.Invoke(warnMsg);
+                DeskGuard.Core.Logging.AppLogger.Warn(warnMsg);
+                return;
+            }
 
             string? filter = sinceUtc == DateTime.MinValue
                 ? null
                 : OutlookMailboxCrawler.GetReceivedSinceFilter(sinceUtc);
 
-            LogProgress?.Invoke(sinceUtc == DateTime.MinValue
+            string startMsg = sinceUtc == DateTime.MinValue
                 ? "Starting full mailbox sweep across all historical folders..."
-                : $"Starting Sweep for items received since {sinceUtc:u}...");
+                : $"Starting sweep for items received since {sinceUtc:u}...";
+            LogProgress?.Invoke(startMsg);
+            DeskGuard.Core.Logging.AppLogger.Info($"[RunSweepAsync] {startMsg} (Filter: {filter ?? "none"})");
 
             List<CrawledFolderEntry> folders = OutlookMailboxCrawler.DiscoverMailFolders(_mapiNamespace);
+            DeskGuard.Core.Logging.AppLogger.Info($"[RunSweepAsync] Discovered {folders.Count} mail folders across Outlook stores.");
 
-            List<(CrawledFolderEntry Folder, List<CrawledEmailSummary> Items)> batches = [];
-            int totalItemsInScope = 0;
+            int totalSwept = 0;
             foreach (CrawledFolderEntry folder in folders)
             {
                 if (ct.IsCancellationRequested) break;
                 List<CrawledEmailSummary> folderItems = OutlookMailboxCrawler.ReadFolderItems(_mapiNamespace, folder, filter);
-                totalItemsInScope += folderItems.Count;
-                batches.Add((folder, folderItems));
-            }
+                if (folderItems.Count == 0) continue;
 
-            int totalSwept = 0;
-            foreach (var (folder, items) in batches)
-            {
-                if (ct.IsCancellationRequested) break;
-                foreach (CrawledEmailSummary item in items)
+                DeskGuard.Core.Logging.AppLogger.Info($"[RunSweepAsync] Inspecting folder '{folder.FolderName}' ({folder.StoreName}): {folderItems.Count} items.");
+
+                foreach (CrawledEmailSummary item in folderItems)
                 {
                     if (ct.IsCancellationRequested) break;
                     if (_processedFingerprints.ContainsKey(item.EntryId)) continue;
@@ -241,9 +262,9 @@ public sealed class OutlookMapiService : IOutlookMapiService
                     ProcessSingleEmail(item.EntryId, item.StoreId, isLiveArrival: false);
                     totalSwept++;
 
-                    if (totalSwept % 5 == 0 || totalSwept == totalItemsInScope)
+                    if (totalSwept % 5 == 0 || totalSwept == 1)
                     {
-                        SweepProgress?.Invoke(totalSwept, Math.Max(totalSwept, totalItemsInScope));
+                        SweepProgress?.Invoke(totalSwept, totalSwept + folderItems.Count);
                     }
 
                     _coordinator.YieldIfHighPriority(ct);
@@ -256,7 +277,9 @@ public sealed class OutlookMapiService : IOutlookMapiService
             }
 
             SweepProgress?.Invoke(totalSwept, totalSwept);
-            LogProgress?.Invoke($"Sweep completed: {totalSwept} items evaluated.");
+            string finishedMsg = $"Sweep completed: {totalSwept} items evaluated.";
+            LogProgress?.Invoke(finishedMsg);
+            DeskGuard.Core.Logging.AppLogger.Info($"[RunSweepAsync] {finishedMsg}");
         }, JobPriority.P2, "SweepMailbox", cancellationToken);
     }
 
@@ -330,10 +353,17 @@ public sealed class OutlookMapiService : IOutlookMapiService
         return _coordinator.EnqueueAsync(ct =>
         {
             EnsureOutlookConnected();
-            if (_mapiNamespace == null) return new DuplicateScanResult();
+            if (_mapiNamespace == null)
+            {
+                string errMsg = "Cannot perform duplicate scan: Unable to connect to Microsoft Outlook MAPI session. Verify Outlook is running.";
+                DeskGuard.Core.Logging.AppLogger.Warn($"[ScanDuplicatesAsync] {errMsg}");
+                throw new InvalidOperationException(errMsg);
+            }
 
             LogProgress?.Invoke("Duplicate Scan: Discovering duplicates across all mailboxes...");
+            DeskGuard.Core.Logging.AppLogger.Info("[ScanDuplicatesAsync] Duplicate scan started. Traversing folder tree...");
             List<CrawledFolderEntry> folders = OutlookMailboxCrawler.DiscoverMailFolders(_mapiNamespace, includeJunk);
+            DeskGuard.Core.Logging.AppLogger.Info($"[ScanDuplicatesAsync] Folders discovered: {folders.Count} (includeJunk={includeJunk})");
 
             Dictionary<string, List<CrawledEmailSummary>> groupsByDna = new(StringComparer.OrdinalIgnoreCase);
             int scanned = 0;

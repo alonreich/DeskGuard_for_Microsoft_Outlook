@@ -55,7 +55,7 @@ internal static class DeploymentLifecycle
         }
     }
 
-    private static bool IsElevated()
+    internal static bool IsElevated()
     {
         using WindowsIdentity identity = WindowsIdentity.GetCurrent();
         WindowsPrincipal principal = new(identity);
@@ -283,9 +283,25 @@ internal static class DeploymentLifecycle
     [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Shell.Application COM object instantiation")]
     private static void LaunchInstalledApp(string targetExe, string targetDir)
     {
+        // 1. First attempt: Launch via explorer.exe to guarantee Medium Integrity (non-elevated) under the interactive user session
         try
         {
-            // Use Shell.Application to launch at Medium Integrity via Windows Explorer desktop session
+            ProcessStartInfo explorerPsi = new("explorer.exe", $"\"{targetExe}\"")
+            {
+                UseShellExecute = false
+            };
+            Process.Start(explorerPsi);
+            Console.WriteLine("[Deployment] Successfully launched DeskGuard via Windows Explorer at Medium Integrity.");
+            return;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Deployment] Explorer medium-integrity launch fallback: {ex.Message}");
+        }
+
+        // 2. Second attempt: Shell.Application COM
+        try
+        {
             Type? shellType = Type.GetTypeFromProgID("Shell.Application");
             if (shellType != null)
             {
@@ -302,6 +318,7 @@ internal static class DeploymentLifecycle
             Console.WriteLine($"[Deployment] Shell.Application launch error: {ex.Message}");
         }
 
+        // 3. Fallback: Process.Start
         try
         {
             ProcessStartInfo startApp = new(targetExe)

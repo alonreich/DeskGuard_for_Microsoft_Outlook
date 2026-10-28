@@ -43,16 +43,7 @@ internal sealed partial class DashboardWindow : IDisposable
 
     public static void Log(string msg)
     {
-        try
-        {
-            string logPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "DeskGuard",
-                "webview2.log");
-            File.AppendAllText(logPath, $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] {msg}{Environment.NewLine}");
-        }
-        catch { }
-        Console.WriteLine($"[Dashboard] {msg}");
+        DeskGuard.Core.Logging.AppLogger.Log(msg, "UI");
     }
 
     private CoreWebView2Controller? _controller;
@@ -653,9 +644,25 @@ internal sealed partial class DashboardWindow : IDisposable
                     _config.Enabled = enable;
                     _mapiService.UpdateConfiguration(_config);
                     SaveConfig();
+                    DeskGuard.Core.Logging.AppLogger.Info($"[IPC] set-enabled: {enable}");
                     if (enable)
                     {
                         _ = _mapiService.StartLiveWatcherAsync(_cts.Token);
+                        if (_config.HistoryScanEnabled)
+                        {
+                            _ = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    DeskGuard.Core.Logging.AppLogger.Info("[Protection Toggle] Active mailbox sweep initiated for past 7 days...");
+                                    await _mapiService.RunSweepAsync(DateTime.UtcNow.AddDays(-7), _cts.Token);
+                                }
+                                catch (Exception ex)
+                                {
+                                    DeskGuard.Core.Logging.AppLogger.Error("[Protection Toggle] Mailbox sweep error", ex);
+                                }
+                            });
+                        }
                     }
                     else
                     {
@@ -814,8 +821,9 @@ internal sealed partial class DashboardWindow : IDisposable
             case "open-logs-folder":
                 try
                 {
-                    string dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskGuard", "data");
-                    Process.Start(new ProcessStartInfo { FileName = dataDir, UseShellExecute = true });
+                    string logsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskGuard", "logs");
+                    Directory.CreateDirectory(logsDir);
+                    Process.Start(new ProcessStartInfo { FileName = logsDir, UseShellExecute = true });
                 }
                 catch { }
                 return new { ok = true };
@@ -962,28 +970,41 @@ internal sealed partial class DashboardWindow : IDisposable
                 _dupScanCts = new CancellationTokenSource();
                 var dupToken = _dupScanCts.Token;
 
-                List<DuplicateItem> allDups;
-                int totalScanned;
-                bool wasPaused = false;
+                DeskGuard.Core.Logging.AppLogger.Info($"[DashboardWindow] 'scan-duplicates' request received. includeJunk={includeJunk}");
 
-                if (_mapiService.IsConnected)
+                _ = Task.Run(async () =>
                 {
-                    var dupRes = await _mapiService.ScanDuplicatesAsync(includeJunk, dupToken);
-                    allDups = dupRes.Items;
-                    totalScanned = dupRes.ScannedCount;
-                    wasPaused = dupRes.Paused;
-                }
-                else
-                {
-                    var (vaultDups, indexedCount) = await Task.Run(() => _vault.FindDuplicates(includeJunk));
-                    allDups = vaultDups;
-                    totalScanned = indexedCount;
-                }
+                    try
+                    {
+                        PostEvent("duplicate-update", new { status = "Scanned", scanned = 0, found = 0, details = "Acquiring Outlook MAPI session..." });
 
-                string scanStatus = wasPaused ? "Paused" : "Finished";
-                await Task.Run(() => _vault.SaveDuplicates(allDups, scanStatus));
-                PostEvent("duplicate-update", new { status = scanStatus, items = allDups, scanned = totalScanned, found = allDups.Count });
-                return new { ok = true, items = allDups, count = totalScanned, paused = wasPaused };
+                        var dupRes = await _mapiService.ScanDuplicatesAsync(includeJunk, dupToken);
+                        string scanStatus = dupRes.Paused ? "Paused" : "Finished";
+                        await Task.Run(() => _vault.SaveDuplicates(dupRes.Items, scanStatus));
+                        DeskGuard.Core.Logging.AppLogger.Info($"[DashboardWindow] Duplicate discovery complete. Status={scanStatus}, Scanned={dupRes.ScannedCount}, Duplicates={dupRes.Items.Count}");
+                        PostEvent("duplicate-update", new
+                        {
+                            status = scanStatus,
+                            items = dupRes.Items,
+                            scanned = dupRes.ScannedCount,
+                            found = dupRes.Items.Count
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        DeskGuard.Core.Logging.AppLogger.Error("[DashboardWindow] Duplicate scan failed", ex);
+                        PostEvent("duplicate-update", new
+                        {
+                            status = "Finished",
+                            items = new List<DuplicateItem>(),
+                            scanned = 0,
+                            found = 0,
+                            error = ex.Message
+                        });
+                    }
+                });
+
+                return new { ok = true, started = true };
 
             case "pause-duplicate-scan":
                 _dupScanCts?.Cancel();

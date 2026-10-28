@@ -47,9 +47,38 @@ internal static partial class Program
         // Attach to parent console if invoked from terminal (CLI/PowerShell/cmd)
         _ = AttachConsole(ATTACH_PARENT_PROCESS);
 
+        string logsDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "DeskGuard",
+            "logs");
+        DeskGuard.Core.Logging.AppLogger.Initialize(logsDir);
+
         if (DeploymentLifecycle.ShouldHandle(args))
         {
             return DeploymentLifecycle.RunAsync(args).GetAwaiter().GetResult();
+        }
+
+        // If running elevated as Administrator in normal runtime mode:
+        // Windows UIPI blocks COM automation between Administrator processes and standard-user Outlook.
+        // Re-launch non-elevated via Windows Explorer desktop session and exit.
+        if (DeploymentLifecycle.IsElevated())
+        {
+            DeskGuard.Core.Logging.AppLogger.Warn("[Security] DeskGuard started with elevated Administrator privileges. Microsoft Outlook runs as a standard user, so Windows UIPI blocks COM automation. Re-launching as standard interactive user via Windows Explorer...");
+            try
+            {
+                string targetExe = Environment.ProcessPath ?? "DeskGuard.exe";
+                ProcessStartInfo explorerPsi = new("explorer.exe", $"\"{targetExe}\"")
+                {
+                    UseShellExecute = false
+                };
+                Process.Start(explorerPsi);
+                DeskGuard.Core.Logging.AppLogger.Info("[Security] Re-launched non-elevated instance via Windows Explorer. Exiting elevated instance.");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                DeskGuard.Core.Logging.AppLogger.Error("[Security] Failed to de-elevate via explorer.exe", ex);
+            }
         }
 
         // Enforce single running instance per user session
@@ -69,6 +98,8 @@ internal static partial class Program
             "data");
         Directory.CreateDirectory(dataDir);
 
+        DeskGuard.Core.Logging.AppLogger.Info("Starting DeskGuard for Microsoft Outlook...");
+
         string configPath = Path.Combine(dataDir, "config.json");
         ScanConfiguration config = ScanConfiguration.Load(configPath);
 
@@ -81,10 +112,17 @@ internal static partial class Program
 
         using VaultRepository vault = new(dataDir);
         using OutlookStaCoordinator coordinator = new();
+        coordinator.LogMessage += msg => DeskGuard.Core.Logging.AppLogger.Warn($"[STA Coordinator] {msg}");
+
         using OutlookMapiService mapiService = new(coordinator, vault, config);
 
         using DashboardWindow dashboard = new(vault, mapiService, config);
         dashboard.Initialize();
+
+        DeskGuard.Core.Logging.AppLogger.OnLog += msg =>
+        {
+            dashboard.PostEvent("live-log", msg);
+        };
 
         tray.RequestOpenDashboard += () =>
         {
@@ -93,8 +131,7 @@ internal static partial class Program
 
         mapiService.LogProgress += msg =>
         {
-            Console.WriteLine($"[DeskGuard] {msg}");
-            dashboard.PostEvent("live-log", msg);
+            DeskGuard.Core.Logging.AppLogger.Info($"[DeskGuard] {msg}");
         };
 
         mapiService.SweepProgress += (count, total) =>
@@ -104,10 +141,32 @@ internal static partial class Program
 
         mapiService.EmailScanned += email =>
         {
-            Console.WriteLine($"Scanned: {email.Subject} [{email.Verdict}] (Score: {email.Score:F1})");
+            DeskGuard.Core.Logging.AppLogger.Info($"Scanned: {email.Subject} [{email.Verdict}] (Score: {email.Score:F1})");
             tray.OnEmailScanned(email.Subject, email.Verdict, email.Score);
-            dashboard.PostEvent("outlook-scan-update", new { item = email, stats = vault.GetStats() });
-            dashboard.PostEvent("stats-update", vault.GetStats());
+
+            var stats = vault.GetStats();
+            var categorized = vault.GetAllCategorizedEmails(100);
+
+            dashboard.PostEvent("outlook-scan-update", new { item = email, stats = stats });
+            dashboard.PostEvent("stats-update", new
+            {
+                full = true,
+                stats = new
+                {
+                    malicious = categorized.GetValueOrDefault("malicious", []),
+                    suspicious = categorized.GetValueOrDefault("suspicious", []),
+                    spam = categorized.GetValueOrDefault("spam", []),
+                    safe = categorized.GetValueOrDefault("safe", [])
+                },
+                counts = new
+                {
+                    total = stats.Total,
+                    malicious = stats.Malicious,
+                    suspicious = stats.Suspicious,
+                    spam = stats.Spam,
+                    safe = stats.Safe
+                }
+            });
         };
 
         mapiService.EngineStatusChanged += (status, detail) =>
@@ -127,7 +186,7 @@ internal static partial class Program
 
         tray.RequestSweep += () =>
         {
-            Console.WriteLine("Mailbox sweep requested.");
+            DeskGuard.Core.Logging.AppLogger.Info("Mailbox sweep requested from tray.");
             tray.ShowNotification("Mailbox Sweep", "Scanning items from the past 7 days for threats...");
             _ = Task.Run(async () =>
             {
@@ -138,6 +197,7 @@ internal static partial class Program
                 }
                 catch (Exception ex)
                 {
+                    DeskGuard.Core.Logging.AppLogger.Error("[Tray Sweep] Error during sweep", ex);
                     tray.ShowNotification("Sweep Error", ex.Message, isWarning: true);
                 }
             });
@@ -145,7 +205,7 @@ internal static partial class Program
 
         tray.RequestDuplicateScan += () =>
         {
-            Console.WriteLine("Duplicate scan requested.");
+            DeskGuard.Core.Logging.AppLogger.Info("Duplicate scan requested from tray.");
             tray.ShowNotification("Duplicate Scan", "Scanning mailboxes for duplicate items...");
             _ = Task.Run(async () =>
             {
@@ -158,6 +218,7 @@ internal static partial class Program
                 }
                 catch (Exception ex)
                 {
+                    DeskGuard.Core.Logging.AppLogger.Error("[Tray Duplicate Scan] Error", ex);
                     tray.ShowNotification("Duplicate Scan Error", ex.Message, isWarning: true);
                 }
             });
@@ -171,6 +232,7 @@ internal static partial class Program
         };
 
         int isConnecting = 0;
+        DateTime nextConnectionAttemptUtc = DateTime.MinValue;
         async Task CheckOutlookConnectionAsync()
         {
             if (Interlocked.CompareExchange(ref isConnecting, 1, 0) != 0) return;
@@ -181,10 +243,18 @@ internal static partial class Program
                 {
                     if (!mapiService.IsWatching)
                     {
+                        if (DateTime.UtcNow < nextConnectionAttemptUtc)
+                        {
+                            return;
+                        }
+
+                        DeskGuard.Core.Logging.AppLogger.Info("[Watchdog] Outlook detected running. Connecting live watcher...");
                         tray.UpdateStatus("Connecting to Outlook...");
                         bool watched = await mapiService.StartLiveWatcherAsync(cts.Token);
                         if (watched)
                         {
+                            nextConnectionAttemptUtc = DateTime.MinValue;
+                            DeskGuard.Core.Logging.AppLogger.Info("[Watchdog] Real-time protection successfully established.");
                             tray.UpdateStatus("Active (Monitoring Inbox)");
                             tray.ShowNotification("DeskGuard Active", "Outlook connected. Real-time inbox protection is active.");
 
@@ -194,17 +264,20 @@ internal static partial class Program
                                 {
                                     try
                                     {
+                                        DeskGuard.Core.Logging.AppLogger.Info("[Watchdog] Triggering startup sweep for past 7 days...");
                                         await mapiService.RunSweepAsync(DateTime.UtcNow.AddDays(-7), cts.Token);
                                     }
                                     catch (Exception ex)
                                     {
-                                        Console.WriteLine($"[Startup Sweep] {ex.Message}");
+                                        DeskGuard.Core.Logging.AppLogger.Error("[Startup Sweep] Failed", ex);
                                     }
                                 });
                             }
                         }
                         else
                         {
+                            nextConnectionAttemptUtc = DateTime.UtcNow.AddSeconds(15);
+                            DeskGuard.Core.Logging.AppLogger.Warn("[Watchdog] StartLiveWatcherAsync returned false. Will retry in 15 seconds.");
                             tray.UpdateStatus("Standby (Waiting for Outlook)");
                         }
                     }
@@ -217,6 +290,7 @@ internal static partial class Program
                 {
                     if (mapiService.IsWatching)
                     {
+                        DeskGuard.Core.Logging.AppLogger.Info("[Watchdog] Protection disabled by configuration. Stopping watcher...");
                         await mapiService.StopLiveWatcherAsync();
                     }
                     tray.UpdateStatus("Paused (Protection Disabled)");
@@ -225,6 +299,7 @@ internal static partial class Program
                 {
                     if (mapiService.IsConnected || mapiService.IsWatching)
                     {
+                        DeskGuard.Core.Logging.AppLogger.Info("[Watchdog] Outlook process not detected. Resetting connection...");
                         await mapiService.ResetConnectionAsync();
                         tray.UpdateStatus("Standby (Waiting for Outlook)");
                     }
@@ -236,7 +311,7 @@ internal static partial class Program
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Watchdog] Outlook connection check: {ex.Message}");
+                DeskGuard.Core.Logging.AppLogger.Error("[Watchdog] Outlook connection check exception", ex);
             }
             finally
             {

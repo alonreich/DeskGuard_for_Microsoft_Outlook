@@ -338,6 +338,26 @@ window.addLog = (msg) => {
 };
 
 api.onScanUpdate(data => {
+    if (data.item) {
+        const item = data.item;
+        const cat = (item.verdict || 'safe').toLowerCase();
+        if (window.AppState.stats[cat]) {
+            if (!window.AppState.stats[cat].some(x => x.entryId === item.entryId)) {
+                window.AppState.stats[cat].unshift(item);
+            }
+        }
+        if (data.stats) {
+            window.AppState.counts = {
+                total: data.stats.total,
+                malicious: data.stats.malicious,
+                suspicious: data.stats.suspicious,
+                spam: data.stats.spam,
+                safe: data.stats.safe
+            };
+        }
+        window.AppState.renderDashboard(false);
+    }
+
     const btn = document.getElementById('full-scan-btn');
     const progMini = document.getElementById('scan-progress-mini');
     const progBar = document.getElementById('scan-progress-bar');

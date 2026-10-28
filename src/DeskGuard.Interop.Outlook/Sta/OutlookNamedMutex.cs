@@ -2,11 +2,12 @@ namespace DeskGuard.Interop.Outlook.Sta;
 
 using System;
 using System.Threading;
+using DeskGuard.Core.Logging;
 
 public sealed class OutlookNamedMutex : IDisposable
 {
     private Mutex? _mutex;
-    private bool _hasLock;
+    private int _lockCount;
     private readonly string _name;
 
     public OutlookNamedMutex(string name = @"Global\MOS_Outlook_COM_Lock")
@@ -44,39 +45,58 @@ public sealed class OutlookNamedMutex : IDisposable
         if (_mutex == null) return true;
         try
         {
-            _hasLock = _mutex.WaitOne(timeoutMs);
-            return _hasLock;
+            if (_lockCount > 0)
+            {
+                _lockCount++;
+                return true;
+            }
+
+            if (_mutex.WaitOne(timeoutMs))
+            {
+                _lockCount = 1;
+                return true;
+            }
+            AppLogger.Warn($"[OutlookNamedMutex] Timed out after {timeoutMs}ms waiting for {_name}");
+            return false;
         }
         catch (AbandonedMutexException)
         {
-            _hasLock = true;
+            AppLogger.Warn($"[OutlookNamedMutex] Acquired abandoned mutex: {_name}");
+            _lockCount = 1;
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            AppLogger.Error($"[OutlookNamedMutex] Exception acquiring {_name}", ex);
             return false;
         }
     }
 
     public void Release()
     {
-        if (_hasLock && _mutex != null)
+        if (_mutex != null && _lockCount > 0)
         {
-            try
+            _lockCount--;
+            if (_lockCount == 0)
             {
-                _mutex.ReleaseMutex();
-            }
-            catch { }
-            finally
-            {
-                _hasLock = false;
+                try
+                {
+                    _mutex.ReleaseMutex();
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.Warn($"[OutlookNamedMutex] ReleaseMutex exception: {ex.Message}");
+                }
             }
         }
     }
 
     public void Dispose()
     {
-        Release();
+        while (_lockCount > 0)
+        {
+            Release();
+        }
         _mutex?.Dispose();
         _mutex = null;
     }

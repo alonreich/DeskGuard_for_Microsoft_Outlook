@@ -105,6 +105,7 @@ public sealed partial class OutlookStaCoordinator : IDisposable
 
     private void StaThreadMain()
     {
+        _ = OleInitialize(IntPtr.Zero);
         try
         {
             _staNativeThreadId = GetCurrentThreadId();
@@ -135,6 +136,10 @@ public sealed partial class OutlookStaCoordinator : IDisposable
         catch (Exception ex)
         {
             LogMessage?.Invoke($"[STA Thread] Unhandled exception: {ex}");
+        }
+        finally
+        {
+            OleUninitialize();
         }
     }
 
@@ -179,9 +184,11 @@ public sealed partial class OutlookStaCoordinator : IDisposable
         }
         finally
         {
-            if (!_globalComLock.Acquire(5000))
+            if (!_globalComLock.Acquire(30000))
             {
-                LogMessage?.Invoke("WARN: Reacquiring Global\\MOS_Outlook_COM_Lock timed out during yield (5000ms).");
+                string msg = "WARN: Reacquiring Global\\MOS_Outlook_COM_Lock timed out during yield (30000ms).";
+                LogMessage?.Invoke(msg);
+                DeskGuard.Core.Logging.AppLogger.Warn(msg);
                 throw new TimeoutException("Timed out reacquiring Global\\MOS_Outlook_COM_Lock after yield.");
             }
         }
@@ -218,11 +225,13 @@ public sealed partial class OutlookStaCoordinator : IDisposable
         bool lockTaken = false;
         try
         {
-            lockTaken = _globalComLock.Acquire(5000);
+            lockTaken = _globalComLock.Acquire(30000);
             if (!lockTaken)
             {
-                LogMessage?.Invoke("WARN: Timed out waiting for Global\\MOS_Outlook_COM_Lock (5000ms)");
-                job.SetException(new TimeoutException("Timed out waiting for Global\\MOS_Outlook_COM_Lock"));
+                string warnMsg = $"WARN: Timed out waiting for Global\\MOS_Outlook_COM_Lock (30000ms) for job '{job.Tag}'";
+                LogMessage?.Invoke(warnMsg);
+                DeskGuard.Core.Logging.AppLogger.Warn(warnMsg);
+                job.SetException(new TimeoutException($"Timed out waiting for Global\\MOS_Outlook_COM_Lock for job '{job.Tag}'"));
                 return;
             }
 
@@ -346,5 +355,11 @@ public sealed partial class OutlookStaCoordinator : IDisposable
 
     [LibraryImport("user32.dll")]
     private static partial uint MsgWaitForMultipleObjectsEx(uint nCount, IntPtr pHandles, uint dwMilliseconds, uint dwWakeMask, uint dwFlags);
+
+    [LibraryImport("ole32.dll")]
+    private static partial int OleInitialize(IntPtr pvReserved);
+
+    [LibraryImport("ole32.dll")]
+    private static partial void OleUninitialize();
     #endregion
 }

@@ -25,6 +25,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.10] - 2026-10-28
+
+### Added
+- Centralized persistent file logger `AppLogger` (`%LOCALAPPDATA%\DeskGuard\logs\deskguard.log`) capturing detailed timestamps, log levels, COM activation steps, folder traversals, STA queue jobs, duplicate audits, and IPC events.
+- Sidebar protection control panel (`.sidebar-protection-box`) hosting the "Protection Active" toggle switch in the left navigation pane directly above Settings for intuitive access across all tabs.
+- Real-time incident list updates in `ui_main.js`: incoming `outlook-scan-update` events with `item` payloads now immediately prepend newly evaluated emails into `AppState.stats` and re-render the dashboard.
+- Immediate persistence for `cfg-speed` changes in `ui_settings.js`, instantly saving the user's selected scan speed to `config.json`.
+- Visual error reporting and graceful termination in `ui_duplicates.js` for duplicate scan failures.
+
+### Changed
+- Compact dashboard statistics cards: `.stats-grid` refactored to flexbox with `.stat-card` width reduced by more than half (max 145px, 7px padding) to reclaim horizontal and vertical screen space while maintaining complete text clarity.
+- Default `ScanningSpeed` in `ScanConfiguration.cs` set to `10` ("Gentle (Low CPU)"), persisting end-user preferences across restarts.
+- Removed redundant `Security Dashboard` title and `.header-area` bar from `index.html` to eliminate vertical space waste.
+- Updated `open-logs-folder` IPC action in `DashboardWindow.cs` to launch the active `%LOCALAPPDATA%\DeskGuard\logs` directory.
+- Refactored `RunSweepAsync` in `OutlookMapiService.cs` to evaluate emails folder-by-folder incrementally, surfacing live scanned items within seconds.
+
+### Fixed
+- Fixed Outlook COM connection hang caused by process integrity level / UAC elevation mismatch: when DeskGuard is started elevated (e.g. from an installer running with administrator rights), Windows UIPI blocks COM automation to standard-user Outlook instances. DeskGuard now detects elevation on startup and automatically re-launches at Medium Integrity via the Windows Explorer desktop session, while `DeploymentLifecycle.LaunchInstalledApp` delegates launch to `explorer.exe`.
+- Fixed COM activation in `ComRef.cs`: ordered activation to attempt `GetActiveObject` then fast .NET COM factory `Activator.CreateInstance(Type.GetTypeFromProgID("Outlook.Application"))` with native `CoCreateInstance` fallback, eliminating 60-second RPC hangs and logging full diagnostics for every step.
+- Initialized OLE subsystem via `OleInitialize` and `OleUninitialize` on the dedicated STA worker thread in `OutlookStaCoordinator.cs`.
+- Added connection failure backoff (15 seconds) to watchdog in `Program.cs` to prevent high-frequency connection retry loops while acquiring Outlook sessions.
+- Fixed duplicate scanner hanging without output or errors by routing discovery asynchronously via `_mapiService.ScanDuplicatesAsync` and streaming progress events to `ui_duplicates.js`.
+- Fixed mutex reentrancy lockouts in `OutlookNamedMutex.cs` by tracking recursion count (`_lockCount`) before releasing the Win32 named mutex.
+- Extended lock acquisition timeout in `OutlookStaCoordinator.cs` from 5s to 30s to prevent spurious circuit breaker tripping during intensive Outlook MAPI operations.
+- Fixed `set-enabled` toggle in `DashboardWindow.cs` to initiate a 7-day mailbox sweep when turned on, ensuring immediate scanning results in the dashboard.
+---
+
 ## [1.0.9] - 2026-10-28
 
 ### Added
