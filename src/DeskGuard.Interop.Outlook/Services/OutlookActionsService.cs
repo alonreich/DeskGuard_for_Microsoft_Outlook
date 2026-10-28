@@ -113,7 +113,7 @@ public sealed class OutlookActionsService
             }
 
             // Create quarantine folder if it doesn't exist
-            return folders.Add(QuarantineFolderName, OlDefaultFolders.olFolderInbox);
+            return folders.Add(QuarantineFolderName, Type.Missing);
         }
         catch
         {
@@ -221,13 +221,13 @@ public sealed class OutlookActionsService
         {
             stores = ns.Stores;
             int count = stores.Count;
-            for (int s = 1; s <= count; s++)
+            for (int storeIdx = 1; storeIdx <= count; storeIdx++)
             {
                 Store? store = null;
                 MAPIFolder? root = null;
                 try
                 {
-                    store = stores[s];
+                    store = stores[storeIdx];
                     root = store.GetRootFolder();
                     Queue<MAPIFolder> queue = new();
                     queue.Enqueue(root);
@@ -255,8 +255,16 @@ public sealed class OutlookActionsService
                                                 row = table.GetNextRow();
                                                 if (row != null)
                                                 {
-                                                    string entryId = row[MapiPropertyTags.ToPropTagUrl(MapiPropertyTags.PrEntryId)] as string
-                                                                     ?? (row["EntryID"] as string ?? string.Empty);
+                                                    object? rawEid = null;
+                                                    try { rawEid = row[MapiPropertyTags.ToPropTagUrl(MapiPropertyTags.PrEntryId)]; } catch { }
+                                                    if (rawEid == null) { try { rawEid = row["EntryID"]; } catch { } }
+
+                                                    string entryId = rawEid switch
+                                                    {
+                                                        string s => s,
+                                                        byte[] b => Convert.ToHexString(b),
+                                                        _ => string.Empty
+                                                    };
                                                     if (!string.IsNullOrEmpty(entryId))
                                                     {
                                                         return ns.GetItemFromID(entryId, store.StoreID) as MailItem;

@@ -50,10 +50,7 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M16.2,16.2L11,13V7H12.5V12.2L17,14.9L16.2,16.2Z"/></svg>
                 Activity Feed
             </div>
-            <div class="nav-item" role="tab" tabindex="0" aria-selected="false" id="nav-engines" onclick="SecurityUI.Engines.open()">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,7C13.4,7 14.8,7.3 16,7.9V11C16,14.75 14.3,18.25 11.5,20.5L12,20.9L12.5,20.5C9.7,18.25 8,14.75 8,11V7.9C9.2,7.3 10.6,7 12,7Z"/></svg>
-                Engines & Weights
-            </div>
+            
             <button id="sensitivity-btn" style="display:none;"></button>
             <div style="flex: 1;"></div>
             <div class="nav-item" role="tab" tabindex="0" aria-selected="false" data-tab="settings" onclick="openSettings()">
@@ -91,7 +88,7 @@
                         </div>
                         <div class="stat-card" onclick="switchCategory('spam')" id="card-spam" role="button" tabindex="0" title="Filter by Spam">
                             <div class="stat-label">Spam</div>
-                            <div id="stat-spam" class="stat-value" style="color: #996100;">0</div>
+                            <div id="stat-spam" class="stat-value" style="color: var(--warn);">0</div>
                         </div>
                         <div class="stat-card" onclick="switchCategory('safe')" id="card-safe" role="button" tabindex="0" title="Filter by Clean">
                             <div class="stat-label">Clean</div>
@@ -108,6 +105,7 @@
                                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"></path></svg>
                                         Verify List
                                     </button>
+                                    <button id="tune-engines-btn" onclick="SecurityUI.Engines.open()" style="font-size: 0.75rem; padding: 6px 12px;" title="Configure anti-spam engine weights and sensitivity"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20v-6M6 20V10M18 20V4M3 10h6M9 14h6M15 4h6"/></svg> Engine Weights</button>
                                     <button id="full-scan-btn" onclick="requestFullScan()" class="primary" style="font-size: 0.75rem; padding: 6px 12px;">
                                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4l3 3"></path></svg>
                                         Full Audit
@@ -142,7 +140,7 @@
                                 <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 180px;">
                                     <input type="text" id="vault-search-input" aria-label="Search all mail keywords" placeholder="Search all mail: words, inv*ce, *voice, j?hn, john@company.com" title="Words are matched anywhere. * = any characters, ? = one character. Several words = all must match." style="font-size: 0.75rem; padding: 4px 8px; width: 100%; border-radius: 4px; background: var(--surface-mid); color: var(--text); border: 1px solid var(--border);" autocomplete="off" />
                                     <span id="index-status" style="font-size: 0.7rem; color: var(--muted); white-space: nowrap;" title="The Search Indexer copies every email into the local search vault, in the background"></span>
-                                    <button id="vault-search-clear" onclick="window.clearVaultSearch()" style="display: none; font-size: 0.75rem; padding: 4px 8px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; cursor: pointer;" title="Clear Search">&times;</button>
+                                    <button id="vault-search-clear" onclick="window.clearVaultSearch()" style="display: none; font-size: 0.75rem; padding: 4px 8px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; cursor: pointer;" title="Clear Search" aria-label="Clear Search">&times;</button>
                                 </div>
                             </div>
                             <div id="list-header" class="list-header incident-grid">
@@ -201,16 +199,16 @@
                 <div class="data-section" style="padding: 16px; display: flex; flex-direction: column; gap: 12px; height: 100%;">
                     <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                         <input type="text" id="vault-search-box" aria-label="Search keywords" placeholder="Search keywords (e.g. invoice, *voice, account)..." style="flex: 1; min-width: 250px; padding: 8px 12px; font-size: 0.9rem;" />
-                        <input type="date" id="vault-search-date-from" title="From Date" style="padding: 8px; font-size: 0.85rem;" />
-                        <input type="date" id="vault-search-date-to" title="To Date" style="padding: 8px; font-size: 0.85rem;" />
-                        <select id="vault-search-folder" style="padding: 8px; font-size: 0.85rem;">
+                        <input type="date" id="vault-search-date-from" title="From Date" aria-label="Filter by From Date" style="padding: 8px; font-size: 0.85rem;" />
+                        <input type="date" id="vault-search-date-to" title="To Date" aria-label="Filter by To Date" style="padding: 8px; font-size: 0.85rem;" />
+                        <select id="vault-search-folder" aria-label="Filter by Folder" style="padding: 8px; font-size: 0.85rem;">
                             <option value="all">All Folders</option>
                             <option value="Inbox">Inbox</option>
                             <option value="Sent">Sent Items</option>
                             <option value="Junk">Junk Email</option>
                             <option value="Quarantine">Quarantine</option>
                         </select>
-                        <select id="vault-search-verdict" style="padding: 8px; font-size: 0.85rem;">
+                        <select id="vault-search-verdict" aria-label="Filter by Verdict" style="padding: 8px; font-size: 0.85rem;">
                             <option value="all">All Verdicts</option>
                             <option value="safe">Safe</option>
                             <option value="suspicious">Suspicious</option>
@@ -301,7 +299,9 @@
         <div class="modal" style="width: 900px; height: 85vh;">
             <div class="modal-header">
                 <h2 id="forensics-title" style="margin: 0; font-weight: 300;">Forensic Security Analysis</h2>
-                <button onclick="closeForensics()" style="background: transparent; border: none; font-size: 1.5rem; color: var(--muted); padding: 0; width: 32px; height: 32px;">&times;</button>
+                <button type="button" class="modal-close-btn" onclick="closeForensics()" title="Close Forensics (Esc)" aria-label="Close">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
             </div>
             <div class="modal-body" id="forensics-body">
             </div>
@@ -312,7 +312,9 @@
         <div class="modal" style="width: 750px; max-height: 85vh; display: flex; flex-direction: column;">
             <div class="modal-header">
                 <h2 id="virustotal-title" style="margin: 0; font-weight: 300;">VirusTotal Threat Intelligence Audit</h2>
-                <button onclick="closeVirusTotalModal()" style="background: transparent; border: none; font-size: 1.5rem; color: var(--muted); padding: 0; width: 32px; height: 32px; cursor: pointer;">&times;</button>
+                <button type="button" class="modal-close-btn" onclick="closeVirusTotalModal()" title="Close VirusTotal (Esc)" aria-label="Close">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
             </div>
             <div class="modal-body" id="virustotal-body" style="overflow-y: auto; flex: 1; padding: 20px;">
             </div>
@@ -326,7 +328,9 @@
         <div class="modal" style="width: 580px;">
             <div class="modal-header">
                 <h2 id="virustotal-setup-title" style="margin: 0; font-weight: 400; font-size: 1.1rem; color: var(--accent);">Connect VirusTotal API</h2>
-                <button onclick="closeVirusTotalSetupModal()" style="background: transparent; border: none; font-size: 1.5rem; color: var(--muted); padding: 0; width: 32px; height: 32px; cursor: pointer;">&times;</button>
+                <button type="button" class="modal-close-btn" onclick="closeVirusTotalSetupModal()" title="Close (Esc)" aria-label="Close">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
             </div>
             <div class="modal-body" style="padding: 24px;">
                 <div style="display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px;">
@@ -362,7 +366,9 @@
         <div class="modal" style="width: 700px; max-height: 90vh; display: flex; flex-direction: column;">
             <div class="modal-header">
                 <h2 id="sensitivity-title" style="margin: 0; font-weight: 400; font-size: 1.1rem; color: var(--accent);">Anti-Spam Engines & Sensitivity Tuning</h2>
-                <button id="close-sensitivity" style="background: transparent; border: none; font-size: 1.5rem; color: var(--muted); padding: 0; width: 32px; height: 32px; cursor: pointer;">&times;</button>
+                <button id="close-sensitivity" type="button" class="modal-close-btn" title="Close Tuning (Esc)" aria-label="Close">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
             </div>
             <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 20px;">
                 <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 16px; line-height: 1.5;">
@@ -389,9 +395,7 @@
         <div class="modal" style="width: 720px; max-height: 90vh; display: flex; flex-direction: column;">
             <div class="modal-header" style="background: linear-gradient(135deg, rgba(0,120,212,0.15) 0%, rgba(20,22,30,0.95) 100%);">
                 <div style="display: flex; align-items: center; gap: 12px;">
-                    <div style="background: var(--accent); color: #fff; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,7C13.4,7 14.8,7.3 16,7.9V11C16,14.75 14.3,18.25 11.5,20.5L12,20.9L12.5,20.5C9.7,18.25 8,14.75 8,11V7.9C9.2,7.3 10.6,7 12,7Z"/></svg>
-                    </div>
+                    <div style="background: var(--accent); color: #fff; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,7C13.4,7 14.8,7.3 16,7.9V11C16,14.75 14.3,18.25 11.5,20.5L12,20.9L12.5,20.5C9.7,18.25 8,14.75 8,11V7.9C9.2,7.3 10.6,7 12,7Z"/></svg></div>
                     <div>
                         <h2 id="wizard-title" style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text);">Welcome to DeskGuard for Microsoft Outlook</h2>
                         <div style="font-size: 0.75rem; color: var(--muted); margin-top: 2px;">Multi-Tier Anti-Spam, Anti-Phishing & Malware Protection Suite</div>

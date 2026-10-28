@@ -35,7 +35,7 @@ public static class OutlookMailboxCrawler
         return $"@SQL=\"urn:schemas:httpmail:datereceived\" >= '{sinceUtc.ToUniversalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)}'";
     }
 
-    public static List<CrawledFolderEntry> DiscoverMailFolders(NameSpace ns)
+    public static List<CrawledFolderEntry> DiscoverMailFolders(NameSpace ns, bool includeJunk = false)
     {
         List<CrawledFolderEntry> result = [];
         if (ns == null) return result;
@@ -56,7 +56,11 @@ public static class OutlookMailboxCrawler
                     string storeName = store.DisplayName ?? string.Empty;
 
                     HashSet<string> skipFolderIds = [];
-                    foreach (OlDefaultFolders ft in new[] { OlDefaultFolders.olFolderDeletedItems, OlDefaultFolders.olFolderOutbox, OlDefaultFolders.olFolderDrafts, OlDefaultFolders.olFolderJunk })
+                    var skipDefaults = includeJunk
+                        ? new[] { OlDefaultFolders.olFolderDeletedItems, OlDefaultFolders.olFolderOutbox, OlDefaultFolders.olFolderDrafts }
+                        : new[] { OlDefaultFolders.olFolderDeletedItems, OlDefaultFolders.olFolderOutbox, OlDefaultFolders.olFolderDrafts, OlDefaultFolders.olFolderJunk };
+
+                    foreach (OlDefaultFolders ft in skipDefaults)
                     {
                         MAPIFolder? sf = null;
                         try

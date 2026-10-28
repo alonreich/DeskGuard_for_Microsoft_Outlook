@@ -25,6 +25,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.9] - 2026-10-28
+
+### Added
+- Implemented interactive column sorting (Date, Subject, Sender, Size, Duplicate Folder, Survivor Folder) with visual sort indicators in `ui_duplicates.js`.
+- Implemented persistent and resizable column widths with draggable resizer handles in `ui_duplicates.js` and `style.css`, saving custom widths in `localStorage`.
+- Implemented instant duplicate in-list search filter in `ui_duplicates.js` supporting subject, sender, and folder queries.
+- Implemented individual checkbox selection with "Select All" toggle and selective deletion in `ui_duplicates.js`.
+- Added recoverable storage metrics displaying total and selected reclaimable disk space (KB/MB/GB) in `ui_duplicates.js`.
+- Added visual cluster grouping for duplicate copies belonging to the same email in `ui_duplicates.js` and `style.css`.
+- Added direct "Engine Weights" configuration button to Security Dashboard header in `index.html`.
+- Implemented `pause-duplicate-scan`, `resume-duplicate-scan`, and `reset-duplicate-engine` IPC endpoints in `DashboardWindow.cs`, enabling interactive duplicate scanning control and engine reset.
+- Added duplicate scan persistence and event broadcasting from system tray in `Program.cs` via `vault.SaveDuplicates()` and `dashboard.PostEvent("duplicate-update", ...)`.
+- Added `role="tablist"`, `role="tab"`, and `aria-selected` keyboard tab management to forensic security analysis tabs in `ui_forensics.js`.
+- Implemented accessible `.modal-close-btn` SVG buttons and `aria-label="Close"` across all modal dialogs in `index.html`.
+- Implemented `export-config` and `import-config` IPC endpoints in `DashboardWindow.cs` alongside interactive JSON file download and upload triggers in `bridge.js` and `ui_settings.js` for security policy backups and migrations.
+- Implemented `set-whitelist`, `set-blacklist`, and `set-spam-keywords` IPC endpoints in `DashboardWindow.cs` with robust array and object JSON parsing to persist trusted/blocked senders and custom spam keywords.
+- Implemented real VirusTotal attachment and body artifact auditing in `DashboardWindow.cs` (`case "scan-virus"`), supporting live attachment hash extraction via `GetAttachmentsWithHashesAsync` and structured report payloads formatted for `ui_list.js`.
+- Implemented active evaluation logic in `ScoringEngine.cs` for previously dormant engines: `rdns` (Reverse DNS verification `RDNS_MISSING` and dynamic host `RDNS_GENERIC`), `rbl` (Global DNSBL blacklists `GLOBAL_RBL_HIT`), `heuristics` (custom spam keywords from `ScanConfiguration.SpamKeywords` and `Rubrics`), and `spamflag` (upstream server headers `HEADER:X-Spam-Flag`).
+- Added unit tests in `ScoringEngineTests.cs` verifying `rdns`, `rbl`, `heuristics`, and `spamflag` rule scoring and penalties.
+
+### Changed
+- `ui_duplicates.js`: Streamlined initial duplicate finder screen into a focused 1-click scan card; removed repetitive "(Protected)" label text and redundant row "Open" buttons to reallocate horizontal space to email Subject and Sender.
+- `index.html`: Cleaned up primary navigation sidebar by removing modal opener `nav-engines`, keeping the sidebar strictly dedicated to top-level view navigation.
+- `OutlookMapiService.ScanDuplicatesAsync`: Refactored duplicate election to cluster all scanned emails by DNA hash, electing a single definitive survivor per cluster (prioritizing non-junk folders and larger file sizes) and pointing all duplicates directly to that survivor, eliminating intermediate survivor chains and duplicate deletion rejections.
+- `DashboardWindow.cs`: Updated `verify-existence` to deserialize items and invoke `_mapiService.CheckExistenceAsync`, returning real prune counts and user-relocation metrics.
+- `DashboardWindow.cs`: Updated `scan-duplicates` to prioritize live Outlook MAPI scanning with `includeJunk` support, falling back to SQLite vault duplicate queries only when Outlook is unavailable or returns 0 items.
+- `OutlookMailboxCrawler.DiscoverMailFolders`: Added `bool includeJunk = false` parameter allowing junk folder crawling when requested while maintaining junk exclusion by default.
+- `ui_reset.js` and `DashboardWindow.cs`: Enhanced "Scorched Earth Factory Reset" to reset in-memory configuration `_config = new ScanConfiguration()`, wipe `config.json` on disk, notify `_mapiService`, and trigger UI reload.
+- `ui_engines.js`: Updated `loadFrom()` to parse sensitivity weights, toggles, and thresholds directly from root configuration properties, preventing reset to factory defaults upon reopening the dialog.
+- `index.html`: Replaced hardcoded `#stat-spam` inline color `#996100` with design system token `var(--warn)` to guarantee WCAG 2.2 AA compliant contrast.
+
+### Fixed
+- Fixed attachment check false positives in `ScoringEngine.cs`: replaced substring search with strict extension termination matching (`EndsWith`), preventing safe files (e.g. `log.cmd.txt`, `react.js.pdf`) from triggering malicious quarantine penalties.
+- Fixed duplicate email DNA validation mismatch in `VaultRepository.Duplicates.cs` and `OutlookMapiService.cs`: normalized duplicate item DNA to computed SHA-256 hash matching `OutlookItemAccessor.GetItemDna()`, allowing duplicate emails to move or delete cleanly.
+- Fixed factory reset in-memory cache retention in `DashboardWindow.cs`: invoking `ClearProcessedCache` on `OutlookMapiService` during factory resets so subsequent sweeps rescann and index historical emails.
+- Fixed Activity Feed filtering and missing action buttons in `ui_activity.js` and `VaultRepository.cs`: normalized event kind filtering case-insensitively and enabled quick "Release" and "Trust" action buttons for quarantine records.
+- Fixed "Open in Outlook" for moved emails in `OutlookActionsService.cs` and `DashboardWindow.cs`: handled binary byte arrays for `PR_ENTRYID` conversions and added fallback search by fingerprint and Message-ID.
+- Fixed synthetic forensics transport headers in `DashboardWindow.cs` and `ui_forensics.js`: exposed raw RFC 822 transport headers in `get-forensics` response and prioritized actual headers over synthetic fallbacks.
+- Fixed incident list selection, counters, and detail panel clearing on release/quarantine in `ui_list.js`: updated `AppState.stats`, decremented counts, refreshed dashboard cards, and cleared detail panel when selected incident is removed.
+- Fixed dirty tracking in `ui_settings.js`: registered change listeners for `cfg-spam-dest` and `cfg-label-outlook` so modified settings prompt for save.
+- Fixed accessible naming in `index.html`: added explicit `aria-label` attributes to vault search date, folder, and verdict inputs.
+- Fixed syntax error in `ui_activity.js:103`: removed duplicate unmatched `});` closing token that crashed JavaScript execution and broke the Activity tab feed.
+- Fixed log stream suppression in `ui_main.js:328-340`: removed uninitialized `originalAddLog` check so `window.addLog()` reliably appends logs to `#live-logs` in the System Audit Logs tab.
+- Fixed unhandled whitelist/blacklist IPC channels in `DashboardWindow.cs` and `ui_main.js`: "Release + Trust sender" now persists trusted sender addresses to `_config.Whitelist` and `config.json`.
+- Fixed Outlook quarantine folder creation type in `OutlookActionsService.cs:116`: replaced `OlDefaultFolders.olFolderInbox` (value 6 = `olPostItem`) with `Type.Missing`, ensuring new quarantine folders are standard `MailItem` folders.
+- Fixed SQLite database desynchronization on release and quarantine moves: updated `IVaultRepository.UpdateVerdict` and `VaultRepository.Reconciliation.cs` to accept `newFolder` and persist updated `current_folder` in the database.
+- Fixed historical email timestamps in `OutlookMapiService.cs`: replaced `DateTime.Now` with `mailItem.ReceivedTime` in `ProcessSingleEmail` and `IndexSingleEmail`, restoring accurate email received dates and historical sorting.
+- Fixed Outlook COM connection failure in `ComUtils.CreateOrGetOutlook` (`ComRef.cs`): removed loop that returned `null` whenever `OUTLOOK.EXE` was running, allowing standard COM `CoCreateInstance` / `Activator` fallback to attach to active Outlook 365 / Click-to-Run processes that do not register in the legacy Running Object Table (`GetActiveObject`).
+---
+
 ## [1.0.8] - 2026-10-27
 
 ### Added

@@ -19,6 +19,13 @@
     --surface-low: #1f2436;
     --surface-mid: #272e45;
     --surface-high: #303955;
+    --dup-col-check: 36px;
+    --dup-col-date: 110px;
+    --dup-col-subj: minmax(180px, 2.5fr);
+    --dup-col-sender: minmax(130px, 1.2fr);
+    --dup-col-size: 70px;
+    --dup-col-folder: minmax(110px, 0.9fr);
+    --dup-col-survivor: minmax(115px, 0.9fr);
 }
 
 * { box-sizing: border-box; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; }
@@ -87,7 +94,14 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(-
 .list-controls { padding: 12px 24px; background: var(--surface-mid); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
 
 .incident-grid { display: grid; grid-template-columns: 85px 70px 160px 160px 1fr 85px 60px; gap: 8px; align-items: center; }
-.duplicate-grid { display: grid; grid-template-columns: 135px minmax(180px, 1.5fr) minmax(140px, 1fr) 75px minmax(120px, 1fr) minmax(160px, 1.2fr) 85px; gap: 10px; align-items: center; }
+.duplicate-grid { display: grid; grid-template-columns: var(--dup-col-check) var(--dup-col-date) var(--dup-col-subj) var(--dup-col-sender) var(--dup-col-size) var(--dup-col-folder) var(--dup-col-survivor); gap: 8px; align-items: center; }
+.duplicate-grid.list-header { user-select: none; }
+.duplicate-grid.list-header > div { position: relative; padding-right: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col-resizer { position: absolute; right: 0; top: 0; bottom: 0; width: 6px; cursor: col-resize; user-select: none; z-index: 10; }
+.col-resizer:hover, .col-resizer.resizing { background: var(--accent); }
+.dup-cluster-item { border-left: 3px solid var(--accent) !important; background: rgba(0, 120, 212, 0.04); }
+.dup-check-cell { display: flex; align-items: center; justify-content: center; }
+.dup-check-cell input[type="checkbox"] { cursor: pointer; width: 15px; height: 15px; accent-color: var(--accent); margin: 0; }
 .list-header { background: var(--surface-high); padding: 10px 24px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; user-select: none; }
 .list-header > div { cursor: pointer; display: flex; align-items: center; gap: 4px; transition: color 0.15s; }
 .list-header > div:hover { color: var(--text); }

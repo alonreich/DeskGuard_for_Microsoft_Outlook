@@ -24,7 +24,9 @@ window.renderForensics = async (item) => {
     
     let rawHeaders = (data && data.fullHeaders && data.fullHeaders !== 'N/A' && data.fullHeaders !== 'Unavailable')
         ? data.fullHeaders
-        : (item.fullHeaders || item.headers || '');
+        : ((data && data.headers && data.headers !== 'N/A' && data.headers !== 'Unavailable')
+            ? data.headers
+            : (item.fullHeaders || item.headers || ''));
 
     if (rawHeaders && typeof rawHeaders === 'string') {
         const clean = rawHeaders.trim();
@@ -132,10 +134,10 @@ window.renderForensics = async (item) => {
             </div>
 
             <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--surface-low); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
-                <div style="display: flex; border-bottom: 1px solid var(--border); background: var(--surface-mid);">
-                    <div id="tab-btn-headers" onclick="switchForensicTab('headers')" style="padding: 12px 24px; cursor: pointer; border-bottom: 2px solid var(--accent); color: var(--accent); font-weight: 600; font-size: 0.75rem; letter-spacing: 0.5px;">TRANSPORT HEADERS</div>
-                    <div id="tab-btn-body" onclick="switchForensicTab('body')" style="padding: 12px 24px; cursor: pointer; color: var(--muted); font-size: 0.75rem; letter-spacing: 0.5px;">MESSAGE CONTENT</div>
-                    <div id="tab-btn-scores" onclick="switchForensicTab('scores')" style="padding: 12px 24px; cursor: pointer; color: var(--muted); font-size: 0.75rem; letter-spacing: 0.5px;">SCORE BREAKDOWN & WHAT-IF</div>
+                <div role="tablist" aria-label="Forensic Information Tabs" style="display: flex; border-bottom: 1px solid var(--border); background: var(--surface-mid);">
+                    <button type="button" role="tab" id="tab-btn-headers" aria-selected="true" tabindex="0" onclick="switchForensicTab('headers')" style="padding: 12px 24px; cursor: pointer; border: none; border-bottom: 2px solid var(--accent); background: transparent; color: var(--accent); font-weight: 600; font-size: 0.75rem; letter-spacing: 0.5px; border-radius: 0;">TRANSPORT HEADERS</button>
+                    <button type="button" role="tab" id="tab-btn-body" aria-selected="false" tabindex="0" onclick="switchForensicTab('body')" style="padding: 12px 24px; cursor: pointer; border: none; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 0.75rem; letter-spacing: 0.5px; border-radius: 0;">MESSAGE CONTENT</button>
+                    <button type="button" role="tab" id="tab-btn-scores" aria-selected="false" tabindex="0" onclick="switchForensicTab('scores')" style="padding: 12px 24px; cursor: pointer; border: none; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 0.75rem; letter-spacing: 0.5px; border-radius: 0;">SCORE BREAKDOWN &amp; WHAT-IF</button>
                 </div>
                 <div id="forensic-tab-headers" style="flex: 1; overflow: auto; padding: 16px; background: #080a11;">
                     ${headersHtml}
@@ -245,9 +247,9 @@ window.switchForensicTab = (tab) => {
     const sTab = document.getElementById('forensic-tab-scores');
     if (!hBtn || !bBtn || !sBtn || !hTab || !bTab || !sTab) return;
 
-    hBtn.style.borderBottom = 'none'; hBtn.style.color = 'var(--muted)';
-    bBtn.style.borderBottom = 'none'; bBtn.style.color = 'var(--muted)';
-    sBtn.style.borderBottom = 'none'; sBtn.style.color = 'var(--muted)';
+    hBtn.style.borderBottom = '2px solid transparent'; hBtn.style.color = 'var(--muted)'; hBtn.setAttribute('aria-selected', 'false');
+    bBtn.style.borderBottom = '2px solid transparent'; bBtn.style.color = 'var(--muted)'; bBtn.setAttribute('aria-selected', 'false');
+    sBtn.style.borderBottom = '2px solid transparent'; sBtn.style.color = 'var(--muted)'; sBtn.setAttribute('aria-selected', 'false');
     hTab.style.display = 'none';
     bTab.style.display = 'none';
     sTab.style.display = 'none';
@@ -255,14 +257,17 @@ window.switchForensicTab = (tab) => {
     if (tab === 'headers') {
         hBtn.style.borderBottom = '2px solid var(--accent)';
         hBtn.style.color = 'var(--accent)';
+        hBtn.setAttribute('aria-selected', 'true');
         hTab.style.display = 'block';
     } else if (tab === 'body') {
         bBtn.style.borderBottom = '2px solid var(--accent)';
         bBtn.style.color = 'var(--accent)';
+        bBtn.setAttribute('aria-selected', 'true');
         bTab.style.display = 'block';
     } else if (tab === 'scores') {
         sBtn.style.borderBottom = '2px solid var(--accent)';
         sBtn.style.color = 'var(--accent)';
+        sBtn.setAttribute('aria-selected', 'true');
         sTab.style.display = 'block';
     }
 };

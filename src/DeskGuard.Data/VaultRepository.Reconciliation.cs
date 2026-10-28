@@ -118,7 +118,7 @@ public sealed partial class VaultRepository
         }
     }
 
-    public bool UpdateVerdict(string entryId, string fingerprint, string verdict, string tier, double score, string? newEntryId = null)
+    public bool UpdateVerdict(string entryId, string fingerprint, string verdict, string tier, double score, string? newEntryId = null, string? newFolder = null)
     {
         AssertWritable();
         EnsureReady();
@@ -135,6 +135,7 @@ public sealed partial class VaultRepository
                         tier = $tier,
                         score = $score,
                         entry_id = COALESCE($newEntryId, entry_id),
+                        current_folder = COALESCE($newFolder, current_folder),
                         hidden = 0
                     WHERE fingerprint = $fp OR entry_id = $eid;
                 """;
@@ -142,6 +143,7 @@ public sealed partial class VaultRepository
                 cmd.Parameters.AddWithValue("$tier", tier ?? string.Empty);
                 cmd.Parameters.AddWithValue("$score", score);
                 cmd.Parameters.AddWithValue("$newEntryId", string.IsNullOrEmpty(newEntryId) ? DBNull.Value : newEntryId);
+                cmd.Parameters.AddWithValue("$newFolder", string.IsNullOrEmpty(newFolder) ? DBNull.Value : newFolder);
                 cmd.Parameters.AddWithValue("$fp", fingerprint ?? string.Empty);
                 cmd.Parameters.AddWithValue("$eid", entryId ?? string.Empty);
 

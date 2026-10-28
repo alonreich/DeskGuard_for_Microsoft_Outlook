@@ -731,10 +731,18 @@ public sealed partial class VaultRepository : IVaultRepository
             {
                 using SqliteCommand cmd = _readConnection!.CreateCommand();
                 string sql = "SELECT id, ts, kind, message_key, entry_id, subject, sender, from_folder, to_folder, score, reasons_json FROM events";
-                if (!string.IsNullOrEmpty(kind))
+                if (!string.IsNullOrWhiteSpace(kind))
                 {
-                    sql += " WHERE kind = $kind";
-                    cmd.Parameters.AddWithValue("$kind", kind);
+                    string kindNorm = kind.Trim().ToLowerInvariant();
+                    if (kindNorm == "quarantine")
+                    {
+                        sql += " WHERE LOWER(kind) IN ('quarantine', 'malicious', 'spam')";
+                    }
+                    else
+                    {
+                        sql += " WHERE LOWER(kind) = $kind";
+                        cmd.Parameters.AddWithValue("$kind", kindNorm);
+                    }
                 }
                 sql += " ORDER BY id DESC LIMIT $limit OFFSET $offset";
                 cmd.Parameters.AddWithValue("$limit", limit);

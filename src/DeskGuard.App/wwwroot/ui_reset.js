@@ -14,6 +14,7 @@ SecurityUI.Reset = (function() {
                 window.addLog('Initiating Scorched Earth Factory Reset...');
                 if (window.showNotification) window.showNotification('SCORCHED EARTH WIPE INITIATED: All configuration and data erased. Application will restart now...', true);
                 await api.resetApp('scorched');
+                setTimeout(() => window.location.reload(), 1000);
             },
             'RESET'
         );
@@ -31,6 +32,7 @@ SecurityUI.Reset = (function() {
                 window.addLog('Initiating Safe Upgrade / Cache Refresh...');
                 if (window.showNotification) window.showNotification('SAFE UPGRADE INITIATED: Resetting cache while preserving your settings. Application restarting...', false);
                 await api.resetApp('safe');
+                setTimeout(() => window.location.reload(), 1000);
             }
         );
     }

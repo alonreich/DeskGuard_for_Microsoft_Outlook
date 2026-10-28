@@ -14,7 +14,7 @@ public interface IVaultRepository : IDisposable
     (int Hidden, bool Skipped) ReconcileFolder(string storeId, string folderPath, IReadOnlySet<string> presentKeys);
     void RelocateEntry(string oldEntryId, string newEntryId, string storeId);
     int GetIndexCount();
-    bool UpdateVerdict(string entryId, string fingerprint, string verdict, string tier, double score, string? newEntryId = null);
+    bool UpdateVerdict(string entryId, string fingerprint, string verdict, string tier, double score, string? newEntryId = null, string? newFolder = null);
     void HideEmails(IEnumerable<string> entryIds);
     void DeleteEmails(IEnumerable<string> entryIds);
     void AddProcessed(IEnumerable<string> keys);

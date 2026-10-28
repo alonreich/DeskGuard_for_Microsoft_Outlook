@@ -76,8 +76,54 @@
         checkStartup: () => invoke('check-startup'),
         setThreatIntelLevel: value => invoke('set-threat-intel-level', value),
         setFirstRun: value => invoke('set-first-run', value),
-        exportConfig: () => invoke('export-config'),
-        importConfig: () => invoke('import-config'),
+        exportConfig: async () => {
+            const res = await invoke('export-config');
+            if (res && (res.json || res.config)) {
+                const text = res.json || JSON.stringify(res.config, null, 2);
+                const blob = new Blob([text], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `deskguard-policy-${new Date().toISOString().slice(0, 10)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                if (typeof window.showNotification === 'function') window.showNotification('Security policy exported successfully.');
+            }
+            return res;
+        },
+        importConfig: async (cfg) => {
+            if (cfg) {
+                return await invoke('import-config', cfg);
+            }
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,application/json';
+            input.style.display = 'none';
+            document.body.appendChild(input);
+            input.onchange = async (e) => {
+                try {
+                    const file = e.target.files && e.target.files[0];
+                    if (file) {
+                        const text = await file.text();
+                        const parsed = JSON.parse(text);
+                        const res = await invoke('import-config', parsed);
+                        if (res && res.ok) {
+                            if (typeof window.showNotification === 'function') window.showNotification('Security policy imported successfully. Reloading...');
+                            setTimeout(() => window.location.reload(), 800);
+                        } else {
+                            if (typeof window.showNotification === 'function') window.showNotification('Import failed: ' + (res.error || 'Invalid policy file'), true);
+                        }
+                    }
+                } catch (err) {
+                    if (typeof window.showNotification === 'function') window.showNotification('Import error: ' + err.message, true);
+                } finally {
+                    document.body.removeChild(input);
+                }
+            };
+            input.click();
+        },
         openLogsFolder: () => invoke('open-logs-folder'),
         resetApp: mode => invoke('app-reset', mode),
         minimizeWindow: () => invoke('window-minimize'),

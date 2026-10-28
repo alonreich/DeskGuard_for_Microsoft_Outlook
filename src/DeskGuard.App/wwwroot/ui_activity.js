@@ -19,9 +19,12 @@
         const sender = escapeHtml(event.sender || 'Unknown Sender');
         const fromF = escapeHtml(event.from_folder || event.fromFolder || 'Inbox');
         const toF = escapeHtml(event.to_folder || event.toFolder || 'Quarantine');
+        const k = (event.kind || '').toLowerCase();
 
-        switch (event.kind) {
+        switch (k) {
             case 'quarantine':
+            case 'malicious':
+            case 'spam':
                 return `Quarantined email from <b style="color:var(--text);">${sender}</b>: <i>"${subj}"</i>${scoreStr} — moved from <b>${fromF}</b> to <b>${toF}</b>.`;
             case 'release':
                 return `Restored false-positive email <i>"${subj}"</i> back to <b>${toF || 'Inbox'}</b>.`;
@@ -30,6 +33,7 @@
             case 'delete':
                 return `Permanently purged spam/malicious email <i>"${subj}"</i> from mailbox.`;
             case 'label':
+            case 'suspicious':
                 return `Flagged suspicious email from <b>${sender}</b>: <i>"${subj}"</i>${scoreStr} in folder <b>${fromF}</b>.`;
             default:
                 return `Security event (${escapeHtml(event.kind)}) recorded on email <i>"${subj}"</i>.`;
@@ -66,12 +70,13 @@
                 card.className = 'activity-event-card';
                 card.style.cssText = 'background: var(--surface-low); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px;';
 
+                const k = (ev.kind || '').toLowerCase();
                 let kindColor = 'var(--accent)';
-                if (ev.kind === 'quarantine') kindColor = 'var(--danger)';
-                else if (ev.kind === 'release' || ev.kind === 'trust') kindColor = 'var(--safe, #6bb700)';
+                if (k === 'quarantine' || k === 'malicious' || k === 'spam') kindColor = 'var(--danger)';
+                else if (k === 'release' || k === 'trust') kindColor = 'var(--safe, #6bb700)';
 
                 const sentenceHtml = formatEventSentence(ev);
-                const showActionButtons = ev.kind === 'quarantine' || ev.kind === 'label';
+                const showActionButtons = k === 'quarantine' || k === 'malicious' || k === 'spam' || k === 'label';
 
                 card.innerHTML = `
                     <div style="display: flex; gap: 12px; align-items: flex-start; flex: 1;">
@@ -99,7 +104,6 @@
                                 await window.securityApi.releaseEmail({
                                     entryId: ev.entry_id || ev.entryId,
                                     fingerprint: ev.message_key || ev.messageKey || ev.fingerprint
-                                });
                                 });
                                 releaseBtn.textContent = 'Released';
                                 setTimeout(() => loadActivityFeed(), 800);

@@ -3,6 +3,8 @@ namespace DeskGuard.Data;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using DeskGuard.Core.Models;
 using DeskGuard.Core.Serialization;
@@ -195,6 +197,14 @@ public sealed partial class VaultRepository
                     {
                         if (ReferenceEquals(r, survivor)) continue;
 
+                        bool isSent = r.FolderKind == "sent";
+                        string msgId = r.Fingerprint.StartsWith("mid:", StringComparison.OrdinalIgnoreCase)
+                            ? r.Fingerprint[4..]
+                            : r.Fingerprint;
+                        string computedDna = !string.IsNullOrWhiteSpace(msgId)
+                            ? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"mid|{msgId}|{isSent}")))
+                            : Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{r.Sender}|{r.Subject}|{r.Timestamp}|{r.Size}")));
+
                         duplicateItems.Add(new DuplicateItem
                         {
                             EntryId = r.EntryId,
@@ -205,7 +215,7 @@ public sealed partial class VaultRepository
                             Size = r.Size,
                             Folder = r.CurrentFolder,
                             Store = string.Empty,
-                            Dna = r.Fingerprint,
+                            Dna = computedDna,
                             SurvivorId = survivor.EntryId,
                             SurvivorStoreId = survivor.StoreId,
                             SurvivorFolder = survivor.CurrentFolder,

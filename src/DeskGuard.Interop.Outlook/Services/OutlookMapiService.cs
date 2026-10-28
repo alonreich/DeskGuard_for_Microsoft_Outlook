@@ -41,6 +41,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
     public event Action<string>? LogProgress;
     public event Action<string, string>? EngineStatusChanged;
     public event Action<int, int>? SweepProgress;
+    public event Action<int, string, string>? DuplicateProgress;
 
     public OutlookMapiService(
         OutlookStaCoordinator coordinator,
@@ -160,6 +161,18 @@ public sealed class OutlookMapiService : IOutlookMapiService
                     _retryQueue.Enqueue(item);
                 }
             });
+        }
+    }
+
+    public void ClearProcessedCache(bool clearProtected = false)
+    {
+        _processedFingerprints.Clear();
+        _moveFailures.Clear();
+        while (_retryQueue.TryDequeue(out _)) { }
+        if (clearProtected)
+        {
+            _releasedFingerprints.Clear();
+            _userMovedFingerprints.Clear();
         }
     }
 
@@ -309,7 +322,10 @@ public sealed class OutlookMapiService : IOutlookMapiService
         }, JobPriority.P2, "CrawlMailbox", cancellationToken);
     }
 
-    public Task<DuplicateScanResult> ScanDuplicatesAsync(CancellationToken cancellationToken)
+    public Task<DuplicateScanResult> ScanDuplicatesAsync(CancellationToken cancellationToken) =>
+        ScanDuplicatesAsync(false, cancellationToken);
+
+    public Task<DuplicateScanResult> ScanDuplicatesAsync(bool includeJunk, CancellationToken cancellationToken = default)
     {
         return _coordinator.EnqueueAsync(ct =>
         {
@@ -317,38 +333,95 @@ public sealed class OutlookMapiService : IOutlookMapiService
             if (_mapiNamespace == null) return new DuplicateScanResult();
 
             LogProgress?.Invoke("Duplicate Scan: Discovering duplicates across all mailboxes...");
-            List<CrawledFolderEntry> folders = OutlookMailboxCrawler.DiscoverMailFolders(_mapiNamespace);
+            List<CrawledFolderEntry> folders = OutlookMailboxCrawler.DiscoverMailFolders(_mapiNamespace, includeJunk);
 
-            Dictionary<string, CrawledEmailSummary> firstSeenByDna = new(StringComparer.OrdinalIgnoreCase);
-            List<DuplicateItem> duplicates = [];
+            Dictionary<string, List<CrawledEmailSummary>> groupsByDna = new(StringComparer.OrdinalIgnoreCase);
             int scanned = 0;
+
+            List<DuplicateItem> ElectDuplicates(Dictionary<string, List<CrawledEmailSummary>> groups)
+            {
+                List<DuplicateItem> result = [];
+                foreach (var (dna, list) in groups)
+                {
+                    if (list.Count < 2) continue;
+
+                    CrawledEmailSummary survivor = list[0];
+                    for (int i = 1; i < list.Count; i++)
+                    {
+                        var candidate = list[i];
+                        bool survivorIsJunk = survivor.FolderPath.Contains("Junk", StringComparison.OrdinalIgnoreCase);
+                        bool candidateIsJunk = candidate.FolderPath.Contains("Junk", StringComparison.OrdinalIgnoreCase);
+
+                        if (survivorIsJunk && !candidateIsJunk)
+                        {
+                            survivor = candidate;
+                        }
+                        else if (!survivorIsJunk && candidateIsJunk)
+                        {
+                            // keep current survivor
+                        }
+                        else if (candidate.Size > survivor.Size)
+                        {
+                            survivor = candidate;
+                        }
+                    }
+
+                    foreach (CrawledEmailSummary dup in list)
+                    {
+                        if (dup.EntryId == survivor.EntryId) continue;
+
+                        result.Add(new DuplicateItem
+                        {
+                            EntryId = dup.EntryId,
+                            StoreId = dup.StoreId,
+                            Subject = !string.IsNullOrEmpty(dup.Subject) ? dup.Subject : (!string.IsNullOrEmpty(survivor.Subject) ? survivor.Subject : "(No Subject)"),
+                            Sender = !string.IsNullOrEmpty(dup.Sender) ? dup.Sender : (!string.IsNullOrEmpty(survivor.Sender) ? survivor.Sender : "Unknown"),
+                            Timestamp = !string.IsNullOrEmpty(dup.Timestamp) ? dup.Timestamp : survivor.Timestamp,
+                            Folder = dup.FolderPath,
+                            Size = dup.Size,
+                            Dna = dna,
+                            SurvivorId = survivor.EntryId,
+                            SurvivorStoreId = survivor.StoreId,
+                            SurvivorFolder = survivor.FolderPath
+                        });
+                    }
+                }
+                return result;
+            }
 
             foreach (CrawledFolderEntry folder in folders)
             {
                 if (ct.IsCancellationRequested)
                 {
+                    List<DuplicateItem> partialDups = ElectDuplicates(groupsByDna);
                     return new DuplicateScanResult
                     {
-                        Items = duplicates,
+                        Items = partialDups,
                         ScannedCount = scanned,
                         Paused = true
                     };
                 }
 
+                DuplicateProgress?.Invoke(scanned, folder.StoreName, folder.FolderName);
                 List<CrawledEmailSummary> items = OutlookMailboxCrawler.ReadFolderItems(_mapiNamespace, folder);
                 foreach (CrawledEmailSummary item in items)
                 {
                     if (ct.IsCancellationRequested)
                     {
+                        List<DuplicateItem> partialDups = ElectDuplicates(groupsByDna);
                         return new DuplicateScanResult
                         {
-                            Items = duplicates,
+                            Items = partialDups,
                             ScannedCount = scanned,
                             Paused = true
                         };
                     }
 
                     scanned++;
+                    if (scanned % 25 == 0)
+                    {
+                        DuplicateProgress?.Invoke(scanned, folder.StoreName, folder.FolderName);
+                    }
                     string dna = string.Empty;
                     if (!string.IsNullOrEmpty(item.MessageId))
                     {
@@ -370,39 +443,16 @@ public sealed class OutlookMapiService : IOutlookMapiService
 
                     if (string.IsNullOrEmpty(dna)) continue;
 
-                    if (!firstSeenByDna.TryGetValue(dna, out CrawledEmailSummary? first))
+                    if (!groupsByDna.TryGetValue(dna, out var list))
                     {
-                        firstSeenByDna[dna] = item;
+                        list = [];
+                        groupsByDna[dna] = list;
                     }
-                    else
-                    {
-                        // Duplicate found: compare size to elect best survivor
-                        CrawledEmailSummary survivor = (item.Size > first.Size) ? item : first;
-                        CrawledEmailSummary duplicate = (item.Size > first.Size) ? first : item;
-
-                        if (item.Size > first.Size)
-                        {
-                            firstSeenByDna[dna] = item;
-                        }
-
-                        duplicates.Add(new DuplicateItem
-                        {
-                            EntryId = duplicate.EntryId,
-                            StoreId = duplicate.StoreId,
-                            Subject = !string.IsNullOrEmpty(duplicate.Subject) ? duplicate.Subject : (!string.IsNullOrEmpty(survivor.Subject) ? survivor.Subject : "(No Subject)"),
-                            Sender = !string.IsNullOrEmpty(duplicate.Sender) ? duplicate.Sender : (!string.IsNullOrEmpty(survivor.Sender) ? survivor.Sender : "Unknown"),
-                            Timestamp = !string.IsNullOrEmpty(duplicate.Timestamp) ? duplicate.Timestamp : survivor.Timestamp,
-                            Folder = duplicate.FolderPath,
-                            Size = duplicate.Size,
-                            Dna = dna,
-                            SurvivorId = survivor.EntryId,
-                            SurvivorStoreId = survivor.StoreId,
-                            SurvivorFolder = survivor.FolderPath
-                        });
-                    }
+                    list.Add(item);
                 }
             }
 
+            List<DuplicateItem> duplicates = ElectDuplicates(groupsByDna);
             _vault.SaveDuplicates(duplicates, "Finished");
             LogProgress?.Invoke($"Duplicate Scan finished: {duplicates.Count} duplicate items found across {scanned} scanned.");
 
@@ -493,7 +543,15 @@ public sealed class OutlookMapiService : IOutlookMapiService
                     }
 
                     string survivorDna = OutlookItemAccessor.GetItemDna(survivorItem);
-                    if (!string.IsNullOrEmpty(entry.Dna) && survivorDna != entry.Dna)
+                    string survivorFp = OutlookItemAccessor.GetFingerprint(survivorItem);
+                    string survivorLegacyFp = OutlookItemAccessor.GetLegacyFingerprint(survivorItem);
+                    string survivorMid = OutlookItemAccessor.GetPropertySafe(survivorItem, MapiPropertyTags.PrInternetMessageId, string.Empty);
+                    bool survivorMatch = string.IsNullOrEmpty(entry.Dna) ||
+                                         string.Equals(survivorDna, entry.Dna, StringComparison.OrdinalIgnoreCase) ||
+                                         string.Equals(survivorFp, entry.Dna, StringComparison.OrdinalIgnoreCase) ||
+                                         string.Equals(survivorLegacyFp, entry.Dna, StringComparison.OrdinalIgnoreCase) ||
+                                         (!string.IsNullOrEmpty(survivorMid) && (string.Equals(entry.Dna, survivorMid, StringComparison.OrdinalIgnoreCase) || string.Equals(entry.Dna, $"mid:{survivorMid}", StringComparison.OrdinalIgnoreCase)));
+                    if (!survivorMatch)
                     {
                         skippedCount++;
                         skipped.Add((dupId, "Survivor DNA mismatch"));
@@ -519,7 +577,17 @@ public sealed class OutlookMapiService : IOutlookMapiService
 
                     // Pre-flight check: Verify target duplicate DNA matches expected DNA before deletion/move
                     string targetDna = OutlookItemAccessor.GetItemDna(targetItem);
-                    if (!string.IsNullOrEmpty(entry.Dna) && targetDna != entry.Dna)
+                    string targetFp = OutlookItemAccessor.GetFingerprint(targetItem);
+                    string targetLegacyFp = OutlookItemAccessor.GetLegacyFingerprint(targetItem);
+                    string targetMid = OutlookItemAccessor.GetPropertySafe(targetItem, MapiPropertyTags.PrInternetMessageId, string.Empty);
+                    bool targetMatch = string.IsNullOrEmpty(entry.Dna) ||
+                                      string.Equals(targetDna, entry.Dna, StringComparison.OrdinalIgnoreCase) ||
+                                      string.Equals(targetFp, entry.Dna, StringComparison.OrdinalIgnoreCase) ||
+                                      string.Equals(targetLegacyFp, entry.Dna, StringComparison.OrdinalIgnoreCase) ||
+                                      (!string.IsNullOrEmpty(targetMid) && (string.Equals(entry.Dna, targetMid, StringComparison.OrdinalIgnoreCase) || string.Equals(entry.Dna, $"mid:{targetMid}", StringComparison.OrdinalIgnoreCase))) ||
+                                      string.Equals(targetDna, survivorDna, StringComparison.OrdinalIgnoreCase) ||
+                                      string.Equals(targetFp, survivorFp, StringComparison.OrdinalIgnoreCase);
+                    if (!targetMatch)
                     {
                         skippedCount++;
                         skipped.Add((dupId, "Target duplicate DNA mismatch"));
@@ -552,10 +620,30 @@ public sealed class OutlookMapiService : IOutlookMapiService
                                         LogProgress?.Invoke($"[SAFE] Moved duplicate to Deleted Items: {entry.Subject} ({dupId})");
                                         ComUtils.Release(moved);
                                     }
+                                    else
+                                    {
+                                        skippedCount++;
+                                        skipped.Add((dupId, "Failed to move duplicate to Deleted Items"));
+                                    }
+                                }
+                                else
+                                {
+                                    skippedCount++;
+                                    skipped.Add((dupId, "Deleted Items folder not found"));
                                 }
                                 ComUtils.Release(tStore);
                             }
+                            else
+                            {
+                                skippedCount++;
+                                skipped.Add((dupId, "Mailbox store not found"));
+                            }
                             ComUtils.Release(tParent);
+                        }
+                        else
+                        {
+                            skippedCount++;
+                            skipped.Add((dupId, "Parent folder not found"));
                         }
                     }
                 }
@@ -641,7 +729,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 if (moved != null)
                 {
                     string newId = moved.EntryID;
-                    _vault.UpdateVerdict(entryId, stableFp, "Safe", "User Released", 100.0, newId);
+                    _vault.UpdateVerdict(entryId, stableFp, "Safe", "User Released", 100.0, newId, targetFolder.Name);
                     _vault.RecordEvent(new SecurityEvent
                     {
                         Kind = "Release",
@@ -699,7 +787,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 if (moved != null)
                 {
                     string newId = moved.EntryID;
-                    _vault.UpdateVerdict(entryId, fp, "Malicious", "High Risk", 0.0, newId);
+                    _vault.UpdateVerdict(entryId, fp, "Malicious", "High Risk", 0.0, newId, targetFolder.Name);
                     _vault.RecordEvent(new SecurityEvent
                     {
                         Kind = "Quarantine",
@@ -917,6 +1005,38 @@ public sealed class OutlookMapiService : IOutlookMapiService
         }, JobPriority.P1, "CheckExistence", cancellationToken);
     }
 
+    public Task<List<AttachmentInfo>> GetAttachmentsWithHashesAsync(
+        string entryId,
+        string storeId,
+        CancellationToken cancellationToken = default)
+    {
+        return _coordinator.EnqueueAsync(ct =>
+        {
+            EnsureOutlookConnected();
+            if (_mapiNamespace == null) return [];
+
+            MailItem? item = null;
+            try
+            {
+                if (!string.IsNullOrEmpty(storeId))
+                {
+                    try { item = _mapiNamespace.GetItemFromID(entryId, storeId) as MailItem; } catch { }
+                }
+                item ??= _mapiNamespace.GetItemFromID(entryId) as MailItem;
+                if (item != null)
+                {
+                    return OutlookItemAccessor.GetAttachmentDetails(item, withHashes: true);
+                }
+            }
+            catch { }
+            finally
+            {
+                ComUtils.Release(item);
+            }
+            return [];
+        }, JobPriority.P1, $"GetAttachments:{entryId}", cancellationToken);
+    }
+
     private void ProcessSingleEmail(
         string entryId,
         string storeId,
@@ -969,6 +1089,14 @@ public sealed class OutlookMapiService : IOutlookMapiService
             List<AttachmentInfo> attachments = OutlookItemAccessor.GetAttachmentDetails(mailItem, withHashes: false);
             string attsJson = JsonSerializer.Serialize(attachments, DeskGuardJsonContext.Default.ListAttachmentInfo);
 
+            DateTime receivedTime = DateTime.Now;
+            try
+            {
+                DateTime rt = mailItem.ReceivedTime;
+                if (rt != default && rt != DateTime.MinValue) receivedTime = rt;
+            }
+            catch { }
+
             EmailRecord record = new()
             {
                 EntryId = entryId,
@@ -978,9 +1106,9 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 Sender = sender,
                 Recipient = to,
                 Cc = cc,
-                Date = DateTime.Now.ToString("yyyy-MM-dd"),
-                Time = DateTime.Now.ToString("HH:mm:ss"),
-                Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                Date = receivedTime.ToString("yyyy-MM-dd"),
+                Time = receivedTime.ToString("HH:mm:ss"),
+                Timestamp = receivedTime.ToString("yyyy-MM-dd HH:mm:ss"),
                 Body = body,
                 Headers = headers,
                 AttachmentsJson = attsJson,
@@ -1124,6 +1252,14 @@ public sealed class OutlookMapiService : IOutlookMapiService
             List<AttachmentInfo> atts = OutlookItemAccessor.GetAttachmentDetails(mailItem, withHashes: false);
             string attsJson = JsonSerializer.Serialize(atts, DeskGuardJsonContext.Default.ListAttachmentInfo);
 
+            DateTime receivedTime = DateTime.Now;
+            try
+            {
+                DateTime rt = mailItem.ReceivedTime;
+                if (rt != default && rt != DateTime.MinValue) receivedTime = rt;
+            }
+            catch { }
+
             EmailRecord record = new()
             {
                 EntryId = entryId,
@@ -1133,9 +1269,9 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 Sender = sender,
                 Recipient = to,
                 Cc = cc,
-                Date = DateTime.Now.ToString("yyyy-MM-dd"),
-                Time = DateTime.Now.ToString("HH:mm:ss"),
-                Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                Date = receivedTime.ToString("yyyy-MM-dd"),
+                Time = receivedTime.ToString("HH:mm:ss"),
+                Timestamp = receivedTime.ToString("yyyy-MM-dd HH:mm:ss"),
                 Body = body,
                 Headers = headers,
                 AttachmentsJson = attsJson,

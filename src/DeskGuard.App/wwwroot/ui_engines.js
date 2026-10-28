@@ -145,23 +145,34 @@ SecurityUI.Engines = (function() {
         });
     }
 
-    function loadFrom(rubrics) {
-        const r = rubrics || DEFAULTS;
+    function loadFrom(source) {
+        let r = DEFAULTS;
+        if (source && typeof source === 'object') {
+            if (source.weights || source.toggles || source.thresholds) {
+                r = source;
+            } else if (source.rubrics && typeof source.rubrics === 'object' && !Array.isArray(source.rubrics)) {
+                r = source.rubrics;
+            }
+        }
         currentWeights = {}; currentToggles = {};
+        const weightsObj = r.weights || (source && source.weights) || DEFAULTS.weights;
+        const togglesObj = r.toggles || (source && source.toggles) || DEFAULTS.toggles;
+        const threshObj = r.thresholds || (source && source.thresholds) || {};
+
         Object.keys(labels).forEach(k => {
-            currentToggles[k] = r.toggles && r.toggles[k] !== undefined ? !!r.toggles[k] : true;
-            currentWeights[k] = r.weights && r.weights[k] !== undefined ? Number(r.weights[k]) : DEFAULTS.weights[k];
+            currentToggles[k] = togglesObj && togglesObj[k] !== undefined ? !!togglesObj[k] : true;
+            currentWeights[k] = weightsObj && weightsObj[k] !== undefined ? Number(weightsObj[k]) : DEFAULTS.weights[k];
         });
         thresholds = {
-            malicious: r.maliciousThresholdPercent !== undefined ? r.maliciousThresholdPercent : DEFAULTS.maliciousThresholdPercent,
-            spam: r.spamThresholdPercent !== undefined ? r.spamThresholdPercent : DEFAULTS.spamThresholdPercent,
-            suspicious: r.suspiciousThresholdPercent !== undefined ? r.suspiciousThresholdPercent : DEFAULTS.suspiciousThresholdPercent
+            malicious: r.maliciousThresholdPercent !== undefined ? r.maliciousThresholdPercent : (threshObj.maliciousThresholdPercent ?? threshObj.MaliciousThresholdPercent ?? DEFAULTS.maliciousThresholdPercent),
+            spam: r.spamThresholdPercent !== undefined ? r.spamThresholdPercent : (threshObj.spamThresholdPercent ?? threshObj.SpamThresholdPercent ?? DEFAULTS.spamThresholdPercent),
+            suspicious: r.suspiciousThresholdPercent !== undefined ? r.suspiciousThresholdPercent : (threshObj.suspiciousThresholdPercent ?? threshObj.SuspiciousThresholdPercent ?? DEFAULTS.suspiciousThresholdPercent)
         };
     }
 
     async function open() {
         const cfg = await api.getConfig();
-        loadFrom(cfg && cfg.rubrics);
+        loadFrom(cfg);
         render();
         if (typeof window.openModal === 'function') {
             window.openModal('sensitivity-modal');

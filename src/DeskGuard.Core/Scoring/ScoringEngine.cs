@@ -2,8 +2,10 @@ namespace DeskGuard.Core.Scoring;
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using DeskGuard.Core.Models;
+using DeskGuard.Core.Serialization;
 
 public sealed partial class ScoringEngine
 {
@@ -111,6 +113,21 @@ public sealed partial class ScoringEngine
 
     [GeneratedRegex(@"<[^>]+>")]
     private static partial Regex HtmlStripRegex();
+
+    [GeneratedRegex(@"\brdns=(fail|none|softfail|temperror|permerror)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex RdnsRegex();
+
+    [GeneratedRegex(@"\b(?:dsl|pool|cable|dyn|dhcp|broadband|home|telecom|static-[0-9]+)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex GenericHostRegex();
+
+    [GeneratedRegex(@"(?:X-Spam-RBL|dnsbl|zen\.spamhaus\.org|b\.barracudacentral\.org|bl\.spamcop\.net)", RegexOptions.IgnoreCase)]
+    private static partial Regex RblRegex();
+
+    [GeneratedRegex(@"^(?:X-Spam-Flag:\s*YES|X-Spam-Status:\s*Yes|X-Spam:\s*Yes)", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
+    private static partial Regex SpamFlagRegex();
+
+    [GeneratedRegex(@"X-Forefront-Antispam-Report:.*?SFV:(SPM|BLK)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex ForefrontSpamRegex();
 
     public SecurityVerdict ScoreEmail(
         EmailRecord email,
@@ -461,14 +478,28 @@ public sealed partial class ScoringEngine
             }
             else if (!string.IsNullOrWhiteSpace(email.AttachmentsJson))
             {
-                string lowerJson = email.AttachmentsJson.ToLowerInvariant();
-                foreach (string ext in DangerousExtensions)
+                List<AttachmentInfo>? attList = null;
+                try
                 {
-                    if (lowerJson.Contains(ext))
+                    attList = JsonSerializer.Deserialize(email.AttachmentsJson, DeskGuardJsonContext.Default.ListAttachmentInfo);
+                }
+                catch { }
+
+                if (attList != null && attList.Count > 0)
+                {
+                    foreach (AttachmentInfo att in attList)
                     {
-                        hasDangerous = true;
-                        dangerousName = ext;
-                        break;
+                        string attName = (att.Name ?? string.Empty).ToLowerInvariant();
+                        foreach (string ext in DangerousExtensions)
+                        {
+                            if (attName.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+                            {
+                                hasDangerous = true;
+                                dangerousName = att.Name ?? string.Empty;
+                                break;
+                            }
+                        }
+                        if (hasDangerous) break;
                     }
                 }
             }
@@ -476,6 +507,67 @@ public sealed partial class ScoringEngine
             if (hasDangerous)
             {
                 AddPenalty("DANGEROUS_ATTACHMENT", "mime", 1.0, $"Suspicious attachment detected: \"{dangerousName}\"");
+            }
+        }
+
+        // 13. RDNS Check
+        if (IsEnabled("rdns"))
+        {
+            Match rdnsMatch = RdnsRegex().Match(rawHeaders);
+            if (rdnsMatch.Success)
+            {
+                string res = rdnsMatch.Groups[1].Value.ToLowerInvariant();
+                if (res is "fail" or "permerror")
+                {
+                    AddPenalty("RDNS_MISSING", "rdns", 1.0, "Reverse DNS verification failed for sender host");
+                }
+                else if (res is "none" or "softfail")
+                {
+                    AddPenalty("RDNS_MISSING", "rdns", 0.6, "No PTR reverse DNS record found for sender IP");
+                }
+            }
+            else if (GenericHostRegex().IsMatch(rawHeaders))
+            {
+                AddPenalty("RDNS_GENERIC", "rdns", 0.8, "Connecting mail host appears to be a dynamic or residential connection");
+            }
+        }
+
+        // 14. Global Blacklist (RBL) Check
+        if (IsEnabled("rbl"))
+        {
+            Match rblMatch = RblRegex().Match(rawHeaders);
+            if (rblMatch.Success)
+            {
+                AddPenalty("GLOBAL_RBL_HIT", "rbl", 1.0, $"Connecting IP or domain is listed on global DNSBL ({rblMatch.Value})");
+            }
+        }
+
+        // 15. Custom & Heuristics Spam Keywords
+        if (IsEnabled("heuristics"))
+        {
+            List<string> spamWords = [..effectiveConfig.SpamKeywords, ..effectiveConfig.Rubrics];
+            if (spamWords.Count > 0)
+            {
+                string combinedText = $"{subject} {body}".ToLowerInvariant();
+                foreach (string kw in spamWords)
+                {
+                    if (string.IsNullOrWhiteSpace(kw)) continue;
+                    string cleanKw = kw.Trim().ToLowerInvariant();
+                    if (cleanKw.Length > 2 && combinedText.Contains(cleanKw))
+                    {
+                        AddPenalty($"HEURISTICS:{cleanKw}", "heuristics", 1.0, $"Matched configured spam keyword: \"{cleanKw}\"");
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 16. Upstream Spam Flags
+        if (IsEnabled("spamflag"))
+        {
+            if (SpamFlagRegex().IsMatch(rawHeaders) || ForefrontSpamRegex().IsMatch(rawHeaders))
+            {
+                AddPenalty("HEADER:X-Spam-Flag", "spamflag", 1.0, "Upstream mail gateway flagged message as spam");
             }
         }
 

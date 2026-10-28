@@ -264,7 +264,7 @@ SecurityUI.Settings = (function() {
             if (unsavedInd) unsavedInd.style.display = 'inline-block';
         }
 
-        ['cfg-startup', 'cfg-enabled', 'cfg-speed', 'cfg-onaccess', 'cfg-ondemand', 'cfg-deephistory', 'cfg-vtkey', 'cfg-intel-level'].forEach(id => {
+        ['cfg-startup', 'cfg-enabled', 'cfg-speed', 'cfg-spam-dest', 'cfg-label-outlook', 'cfg-onaccess', 'cfg-ondemand', 'cfg-deephistory', 'cfg-vtkey', 'cfg-intel-level'].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('input', markUnsaved);

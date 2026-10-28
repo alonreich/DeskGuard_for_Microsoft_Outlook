@@ -53,8 +53,18 @@ JavaScript sends JSON messages via `window.bridge.send(action, payload)` or `win
 - `release-item`: Restores quarantined email back to Inbox.
 - `delete-item`: Soft/hard deletes targeted email records.
 - `scan-duplicates`: Triggers on-demand mailbox duplicate audit.
+- `pause-duplicate-scan`: Suspends in-flight duplicate scan across folders.
+- `resume-duplicate-scan`: Resumes suspended duplicate scan.
+- `reset-duplicate-engine`: Cancels duplicate scan and clears duplicate working cache.
 - `clean-duplicates`: Deletes selected duplicate copies.
+- `get-saved-duplicates`: Retrieves saved duplicate scan items from vault.
+- `verify-existence`: Verifies presence of incident items in Outlook and synchronizes vault state.
 - `cloud-scan`: Executes on-demand hash threat lookup (DNS / VirusTotal).
+- `set-whitelist`: Persists approved email addresses to scan configuration whitelist.
+- `set-blacklist`: Persists blocked sender domains and addresses to configuration blacklist.
+- `set-spam-keywords`: Updates custom spam keyword heuristic filters.
+- `export-config`: Exports full security configuration as JSON payload.
+- `import-config`: Imports and applies security policy configuration JSON.
 - `save-config`: Persists updated scan parameters to local storage.
 
 ### 3.2 Backend to Frontend Event Streams

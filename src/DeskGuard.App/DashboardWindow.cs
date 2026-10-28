@@ -17,6 +17,7 @@ using DeskGuard.Core.Serialization;
 using DeskGuard.Core.Services;
 using DeskGuard.Data;
 using DeskGuard.Interop.Outlook.Services;
+using DeskGuard.Interop.Outlook.Com;
 using Microsoft.Web.WebView2.Core;
 
 internal sealed partial class DashboardWindow : IDisposable
@@ -32,9 +33,11 @@ internal sealed partial class DashboardWindow : IDisposable
     private readonly VaultRepository _vault;
     private readonly OutlookMapiService _mapiService;
     private readonly ScoringEngine _scoringEngine;
-    private readonly ScanConfiguration _config;
+    private ScanConfiguration _config;
     private readonly string _configFilePath;
     private readonly CancellationTokenSource _cts = new();
+    private CancellationTokenSource? _dupScanCts;
+    private bool _lastIncludeJunk;
 
     private void SaveConfig() => _config.Save(_configFilePath);
 
@@ -236,6 +239,10 @@ internal sealed partial class DashboardWindow : IDisposable
             "data",
             "config.json");
         _scoringEngine = new ScoringEngine();
+        _mapiService.DuplicateProgress += (count, store, folder) =>
+        {
+            PostEvent("duplicate-update", new { status = "Progress", scanned = count, store = store, currentFolder = folder });
+        };
 
         IntPtr hInstance = GetModuleHandleW(IntPtr.Zero);
 
@@ -620,7 +627,16 @@ internal sealed partial class DashboardWindow : IDisposable
                     whitelist = _config.Whitelist,
                     blacklist = _config.Blacklist,
                     spamKeywords = _config.SpamKeywords,
-                    rubrics = _config.Rubrics,
+                    rubrics = new
+                    {
+                        version = 2,
+                        weights = _config.Weights,
+                        toggles = _config.Toggles,
+                        maliciousThresholdPercent = _config.Thresholds.MaliciousThresholdPercent,
+                        spamThresholdPercent = _config.Thresholds.SpamThresholdPercent,
+                        suspiciousThresholdPercent = _config.Thresholds.SuspiciousThresholdPercent
+                    },
+                    rubricsList = _config.Rubrics,
                     threatIntelligenceLevel = _config.ThreatIntelligenceLevel,
                     scanningSpeed = _config.ScanningSpeed,
                     spamDestination = _config.SpamDestination,
@@ -838,11 +854,45 @@ internal sealed partial class DashboardWindow : IDisposable
             case "open-email":
                 string oEntryId = payload.TryGetProperty("entryId", out var oe) ? oe.GetString() ?? string.Empty : string.Empty;
                 string oStoreId = payload.TryGetProperty("storeId", out var os) ? os.GetString() ?? string.Empty : string.Empty;
-                bool opened = await _mapiService.OpenInOutlookAsync(oEntryId, oStoreId, null, null, _cts.Token);
+                string oFingerprint = payload.TryGetProperty("fingerprint", out var ofp) ? ofp.GetString() ?? string.Empty : string.Empty;
+                string oMessageId = payload.TryGetProperty("messageId", out var omid) ? omid.GetString() ?? string.Empty : string.Empty;
+
+                if (!string.IsNullOrEmpty(oEntryId) && (string.IsNullOrEmpty(oFingerprint) || string.IsNullOrEmpty(oMessageId)))
+                {
+                    try
+                    {
+                        var rec = _vault.GetEmailById(oEntryId);
+                        if (rec != null)
+                        {
+                            if (string.IsNullOrEmpty(oFingerprint)) oFingerprint = rec.Fingerprint;
+                            if (string.IsNullOrEmpty(oMessageId)) oMessageId = rec.MessageId;
+                            if (string.IsNullOrEmpty(oStoreId)) oStoreId = rec.StoreId;
+                        }
+                    }
+                    catch { }
+                }
+
+                bool opened = await _mapiService.OpenInOutlookAsync(oEntryId, oStoreId, oFingerprint, oMessageId, _cts.Token);
                 return new { ok = opened, success = opened };
 
             case "verify-existence":
-                return new { ok = true, success = true, removedCount = 0 };
+                List<EmailRecord> itemsToCheck = [];
+                if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("items", out var itemsElem) && itemsElem.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var itemElem in itemsElem.EnumerateArray())
+                    {
+                        string eId = itemElem.TryGetProperty("entryId", out var ep) ? ep.GetString() ?? string.Empty : (itemElem.TryGetProperty("id", out var ip) ? ip.GetString() ?? string.Empty : string.Empty);
+                        string sId = itemElem.TryGetProperty("storeId", out var sp) ? sp.GetString() ?? string.Empty : string.Empty;
+                        string fpVal = itemElem.TryGetProperty("fingerprint", out var fpProp) ? fpProp.GetString() ?? string.Empty : (itemElem.TryGetProperty("messageKey", out var mkProp) ? mkProp.GetString() ?? string.Empty : string.Empty);
+                        string vVal = itemElem.TryGetProperty("verdict", out var vProp) ? vProp.GetString() ?? string.Empty : string.Empty;
+                        if (!string.IsNullOrEmpty(eId))
+                        {
+                            itemsToCheck.Add(new EmailRecord { EntryId = eId, StoreId = sId, Fingerprint = fpVal, Verdict = vVal });
+                        }
+                    }
+                }
+                var checkRes = await _mapiService.CheckExistenceAsync(itemsToCheck, _cts.Token);
+                return new { ok = true, success = true, removedCount = checkRes.RemovedEntryIds.Count, userMovedCount = checkRes.UserMovedEmails.Count };
 
             case "search-vault":
                 string q = payload.TryGetProperty("query", out var qp) ? qp.GetString() ?? string.Empty : string.Empty;
@@ -907,26 +957,55 @@ internal sealed partial class DashboardWindow : IDisposable
                 {
                     includeJunk = ijProp.GetBoolean();
                 }
+                _lastIncludeJunk = includeJunk;
+                _dupScanCts?.Cancel();
+                _dupScanCts = new CancellationTokenSource();
+                var dupToken = _dupScanCts.Token;
 
-                var (vaultDups, indexedCount) = await Task.Run(() => _vault.FindDuplicates(includeJunk));
                 List<DuplicateItem> allDups;
                 int totalScanned;
+                bool wasPaused = false;
 
-                if (vaultDups.Count > 0 || indexedCount > 0)
+                if (_mapiService.IsConnected)
                 {
-                    allDups = vaultDups;
-                    totalScanned = indexedCount;
+                    var dupRes = await _mapiService.ScanDuplicatesAsync(includeJunk, dupToken);
+                    allDups = dupRes.Items;
+                    totalScanned = dupRes.ScannedCount;
+                    wasPaused = dupRes.Paused;
                 }
                 else
                 {
-                    var dupRes = await _mapiService.ScanDuplicatesAsync(_cts.Token);
-                    allDups = dupRes.Items;
-                    totalScanned = dupRes.ScannedCount;
+                    var (vaultDups, indexedCount) = await Task.Run(() => _vault.FindDuplicates(includeJunk));
+                    allDups = vaultDups;
+                    totalScanned = indexedCount;
                 }
 
-                await Task.Run(() => _vault.SaveDuplicates(allDups, "Finished"));
-                PostEvent("duplicate-update", new { status = "Finished", items = allDups, scanned = totalScanned, found = allDups.Count });
-                return new { ok = true, items = allDups, count = totalScanned };
+                string scanStatus = wasPaused ? "Paused" : "Finished";
+                await Task.Run(() => _vault.SaveDuplicates(allDups, scanStatus));
+                PostEvent("duplicate-update", new { status = scanStatus, items = allDups, scanned = totalScanned, found = allDups.Count });
+                return new { ok = true, items = allDups, count = totalScanned, paused = wasPaused };
+
+            case "pause-duplicate-scan":
+                _dupScanCts?.Cancel();
+                return new { ok = true };
+
+            case "resume-duplicate-scan":
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var resumeElement = JsonSerializer.SerializeToElement(new { includeJunk = _lastIncludeJunk });
+                        await HandleIpcMessageAsync("scan-duplicates", resumeElement);
+                    }
+                    catch { }
+                });
+                return new { ok = true };
+
+            case "reset-duplicate-engine":
+                _dupScanCts?.Cancel();
+                await Task.Run(() => _vault.SaveDuplicates([], "Finished"));
+                PostEvent("duplicate-update", new { status = "Finished", items = new List<DuplicateItem>(), scanned = 0, found = 0 });
+                return new { ok = true };
 
             case "get-saved-duplicates":
                 return await Task.Run(() =>
@@ -979,6 +1058,8 @@ internal sealed partial class DashboardWindow : IDisposable
                             score = emailRec.Score,
                             verdict = emailRec.Verdict,
                             body = emailRec.Body,
+                            headers = emailRec.Headers,
+                            fullHeaders = emailRec.Headers,
                             penalties = emailRec.PenaltiesJson
                         };
                     }
@@ -989,16 +1070,180 @@ internal sealed partial class DashboardWindow : IDisposable
                 return new { score = 85.0, verdict = "Clean" };
 
             case "scan-virus":
-                string vId = payload.GetString() ?? string.Empty;
-                return await CloudThreatService.ScanVirusAsync(vId, _config.VtKey, _config.ThreatIntelligenceLevel, _cts.Token);
+                string vId = payload.ValueKind == JsonValueKind.String ? (payload.GetString() ?? string.Empty) : string.Empty;
+                if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("id", out var idProp))
+                {
+                    vId = idProp.GetString() ?? string.Empty;
+                }
+
+                if (_config.ThreatIntelligenceLevel >= 2 && (string.IsNullOrWhiteSpace(_config.VtKey) || _config.VtKey.Trim().Length < 16 || _config.VtKey == "MASKED_FOR_SECURITY"))
+                {
+                    return new
+                    {
+                        success = false,
+                        code = "NO_API_KEY",
+                        error = "VirusTotal API key is not configured. Please enter your API key to enable live threat intelligence scanning."
+                    };
+                }
+
+                var emailRec = await Task.Run(() => _vault.GetEmailById(vId));
+                List<AttachmentInfo> attList = [];
+                if (emailRec != null && !string.IsNullOrEmpty(emailRec.AttachmentsJson))
+                {
+                    try
+                    {
+                        attList = JsonSerializer.Deserialize(emailRec.AttachmentsJson, DeskGuardJsonContext.Default.ListAttachmentInfo) ?? [];
+                    }
+                    catch { }
+                }
+
+                if ((attList.Count == 0 || attList.All(a => string.IsNullOrEmpty(a.Hash) || a.Hash == "N/A")) && _mapiService.IsConnected && emailRec != null)
+                {
+                    try
+                    {
+                        var fetched = await _mapiService.GetAttachmentsWithHashesAsync(emailRec.EntryId, emailRec.StoreId, _cts.Token);
+                        if (fetched.Count > 0)
+                        {
+                            attList = fetched;
+                        }
+                    }
+                    catch { }
+                }
+
+                List<object> reportItems = [];
+                int threatsFound = 0;
+
+                if (attList.Count > 0)
+                {
+                    foreach (var att in attList)
+                    {
+                        string hashToScan = (!string.IsNullOrEmpty(att.Hash) && att.Hash != "N/A") ? att.Hash : OutlookItemAccessor.ComputeSha256(att.Name + att.Size);
+                        var scanRes = await CloudThreatService.ScanVirusAsync(hashToScan, _config.VtKey, _config.ThreatIntelligenceLevel, _cts.Token);
+                        if (scanRes.IsMalicious) threatsFound++;
+                        reportItems.Add(new
+                        {
+                            name = att.Name,
+                            type = !string.IsNullOrEmpty(att.Type) ? att.Type : "file",
+                            status = scanRes.Verdict,
+                            hash = hashToScan,
+                            malicious = scanRes.IsMalicious ? 1 : 0,
+                            suspicious = 0
+                        });
+                    }
+                }
+                else
+                {
+                    string bodyHash = emailRec != null ? OutlookItemAccessor.ComputeSha256(emailRec.Body + emailRec.Subject) : OutlookItemAccessor.ComputeSha256(vId);
+                    var scanRes = await CloudThreatService.ScanVirusAsync(bodyHash, _config.VtKey, _config.ThreatIntelligenceLevel, _cts.Token);
+                    if (scanRes.IsMalicious) threatsFound++;
+                    reportItems.Add(new
+                    {
+                        name = (emailRec?.Subject != null && emailRec.Subject.Length > 0) ? emailRec.Subject : "Message Content",
+                        type = "rfc822/digest",
+                        status = scanRes.Verdict,
+                        hash = bodyHash,
+                        malicious = scanRes.IsMalicious ? 1 : 0,
+                        suspicious = 0
+                    });
+                }
+
+                return new
+                {
+                    success = true,
+                    data = new
+                    {
+                        subject = emailRec?.Subject ?? "Incident Threat Audit",
+                        sender = emailRec?.Sender ?? "Unknown",
+                        ip = "Internal Network",
+                        status = threatsFound > 0 ? "Threat Detected" : "Audit Complete - Clean",
+                        vtQueried = !string.IsNullOrWhiteSpace(_config.VtKey) && _config.ThreatIntelligenceLevel >= 2,
+                        threatsFound = threatsFound,
+                        items = reportItems
+                    }
+                };
 
             case "trust-sender":
-                string senderEmail = payload.GetString() ?? string.Empty;
+                string senderEmail = payload.ValueKind == JsonValueKind.String ? (payload.GetString() ?? string.Empty).Trim() : string.Empty;
                 if (!string.IsNullOrEmpty(senderEmail))
                 {
-                    await Task.Run(() => _vault.AddProtected([senderEmail], "released"));
+                    if (!_config.Whitelist.Any(w => string.Equals(w, senderEmail, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        _config.Whitelist.Add(senderEmail);
+                        _mapiService.UpdateConfiguration(_config);
+                        SaveConfig();
+                    }
+                    await Task.Run(() =>
+                    {
+                        _vault.AddProtected([senderEmail], "released");
+                        _vault.RecordEvent(new SecurityEvent
+                        {
+                            Kind = "Trust",
+                            Sender = senderEmail,
+                            Subject = $"Trusted sender: {senderEmail}",
+                            FromFolder = "Inbox",
+                            ToFolder = "Trusted",
+                            Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                        });
+                    });
                 }
                 return new { ok = true };
+
+            case "set-whitelist":
+                _config.Whitelist = ParseStringList(payload);
+                _mapiService.UpdateConfiguration(_config);
+                SaveConfig();
+                return new { ok = true };
+
+            case "set-blacklist":
+                _config.Blacklist = ParseStringList(payload);
+                _mapiService.UpdateConfiguration(_config);
+                SaveConfig();
+                return new { ok = true };
+
+            case "set-spam-keywords":
+                _config.SpamKeywords = ParseStringList(payload);
+                _mapiService.UpdateConfiguration(_config);
+                SaveConfig();
+                return new { ok = true };
+
+            case "export-config":
+                return new
+                {
+                    ok = true,
+                    success = true,
+                    config = _config,
+                    json = JsonSerializer.Serialize(_config, DeskGuardJsonContext.Default.ScanConfiguration)
+                };
+
+            case "import-config":
+                try
+                {
+                    ScanConfiguration? importedCfg = null;
+                    if (payload.ValueKind == JsonValueKind.Object)
+                    {
+                        importedCfg = JsonSerializer.Deserialize(payload.GetRawText(), DeskGuardJsonContext.Default.ScanConfiguration);
+                    }
+                    else if (payload.ValueKind == JsonValueKind.String)
+                    {
+                        string s = payload.GetString() ?? "";
+                        if (s.StartsWith('{'))
+                        {
+                            importedCfg = JsonSerializer.Deserialize(s, DeskGuardJsonContext.Default.ScanConfiguration);
+                        }
+                    }
+                    if (importedCfg != null)
+                    {
+                        _config = importedCfg;
+                        _mapiService.UpdateConfiguration(_config);
+                        SaveConfig();
+                        return new { ok = true, success = true };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    return new { ok = false, success = false, error = ex.Message };
+                }
+                return new { ok = false, success = false, error = "Invalid configuration data" };
 
             case "app-reset":
                 string resetMode = payload.ValueKind == JsonValueKind.String ? payload.GetString() ?? "safe" : "safe";
@@ -1008,10 +1253,15 @@ internal sealed partial class DashboardWindow : IDisposable
                     {
                         StartupManager.SetStartupEnabled(false);
                         _vault.NuclearReset();
+                        _config = new ScanConfiguration();
+                        SaveConfig();
+                        _mapiService.UpdateConfiguration(_config);
+                        _mapiService.ClearProcessedCache(clearProtected: true);
                     }
                     else
                     {
                         _vault.ClearIncidents();
+                        _mapiService.ClearProcessedCache(clearProtected: false);
                     }
                 });
                 return new { ok = true };
@@ -1100,6 +1350,48 @@ internal sealed partial class DashboardWindow : IDisposable
                 _controller.Bounds = new Rectangle(0, 0, rc.Right - rc.Left, rc.Bottom - rc.Top);
             }
         }
+    }
+
+    private static List<string> ParseStringList(JsonElement element)
+    {
+        List<string> list = [];
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                {
+                    string s = (item.GetString() ?? string.Empty).Trim();
+                    if (!string.IsNullOrEmpty(s) && !list.Contains(s, StringComparer.OrdinalIgnoreCase))
+                    {
+                        list.Add(s);
+                    }
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty("emails", out var emailsElem) && emailsElem.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in emailsElem.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.String)
+                    {
+                        string s = (item.GetString() ?? string.Empty).Trim();
+                        if (!string.IsNullOrEmpty(s) && !list.Contains(s, StringComparer.OrdinalIgnoreCase))
+                        {
+                            list.Add(s);
+                        }
+                    }
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.String)
+        {
+            string s = (element.GetString() ?? string.Empty).Trim();
+            if (!string.IsNullOrEmpty(s)) list.Add(s);
+        }
+        return list;
     }
 
     public void Dispose()

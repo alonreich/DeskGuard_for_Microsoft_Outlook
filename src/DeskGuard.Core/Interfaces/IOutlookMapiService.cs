@@ -40,6 +40,7 @@ public interface IOutlookMapiService : IDisposable
     event Action<string>? LogProgress;
     event Action<string, string>? EngineStatusChanged;
     event Action<int, int>? SweepProgress;
+    event Action<int, string, string>? DuplicateProgress;
 
     bool IsConnected { get; }
     bool IsWatching { get; }
@@ -55,6 +56,7 @@ public interface IOutlookMapiService : IDisposable
     Task RunCrawlerAsync(CancellationToken cancellationToken);
 
     Task<DuplicateScanResult> ScanDuplicatesAsync(CancellationToken cancellationToken);
+    Task<DuplicateScanResult> ScanDuplicatesAsync(bool includeJunk, CancellationToken cancellationToken = default);
     Task<DuplicateCleanupResult> CleanDuplicatesAsync(IEnumerable<DuplicateItem> targetItems, string mode = "safe", CancellationToken cancellationToken = default);
 
     Task<bool> ReleaseEmailAsync(string entryId, string storeId, string fingerprint, int targetFolderType = 6, CancellationToken cancellationToken = default);
@@ -62,5 +64,7 @@ public interface IOutlookMapiService : IDisposable
     Task<DeleteResult> DeleteEmailsAsync(IEnumerable<string> entryIds, Dictionary<string, string>? storeIds = null, CancellationToken cancellationToken = default);
     Task<bool> OpenInOutlookAsync(string entryId, string storeId, string? altEntryId = null, string? messageId = null, CancellationToken cancellationToken = default);
     Task<ExistenceCheckResult> CheckExistenceAsync(IEnumerable<EmailRecord> items, CancellationToken cancellationToken = default);
+    Task<List<AttachmentInfo>> GetAttachmentsWithHashesAsync(string entryId, string storeId, CancellationToken cancellationToken = default);
     void DrainRetryQueue();
+    void ClearProcessedCache(bool clearProtected = false);
 }

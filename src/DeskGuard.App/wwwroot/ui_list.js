@@ -642,6 +642,33 @@ window.releaseIncident = async (entryId, fingerprint, trustSenderAddress) => {
                         <p style="color: var(--muted); margin: 0; font-size: 0.85rem;">The message is back in your Outlook Inbox. DeskGuard will not move it again.${trusted ? ` ${window.escapeHtml(trustSenderAddress)} is now on your trusted list.` : ''}</p>
                     </div>`;
             }
+
+            let actionedItem = null;
+            let actionedCat = null;
+            ['malicious', 'suspicious', 'spam', 'safe'].forEach(cat => {
+                if (window.AppState.stats && window.AppState.stats[cat]) {
+                    const idx = window.AppState.stats[cat].findIndex(item => (item.entryId || item.id) === entryId || (fingerprint && item.fingerprint === fingerprint));
+                    if (idx !== -1) {
+                        actionedItem = window.AppState.stats[cat][idx];
+                        window.AppState.stats[cat].splice(idx, 1);
+                        actionedCat = cat;
+                    }
+                }
+            });
+
+            if (actionedItem) {
+                actionedItem.verdict = 'Safe';
+                actionedItem.currentFolder = 'Inbox';
+                window.AppState.stats.safe = window.AppState.stats.safe || [];
+                window.AppState.stats.safe.unshift(actionedItem);
+            }
+
+            if (actionedCat && actionedCat !== 'safe' && window.AppState.counts) {
+                if (window.AppState.counts[actionedCat] > 0) window.AppState.counts[actionedCat]--;
+                window.AppState.counts.safe = (window.AppState.counts.safe || 0) + 1;
+            }
+
+            window.AppState.renderDashboard(false);
         } else {
             if (typeof window.showNotification === "function") window.showNotification("Release failed: " + ((res && res.error) || "Outlook could not locate or move the item."), true); else alert("Release failed: " + ((res && res.error) || "Outlook could not locate or move the item."));
             if (btn) {
@@ -676,6 +703,33 @@ window.quarantineIncident = async (entryId, fingerprint) => {
                         <p style="color: var(--muted); margin: 0; font-size: 0.85rem;">The message was successfully moved to Outlook Junk Email.</p>
                     </div>`;
             }
+
+            let actionedItem = null;
+            let actionedCat = null;
+            ['malicious', 'suspicious', 'spam', 'safe'].forEach(cat => {
+                if (window.AppState.stats && window.AppState.stats[cat]) {
+                    const idx = window.AppState.stats[cat].findIndex(item => (item.entryId || item.id) === entryId || (fingerprint && item.fingerprint === fingerprint));
+                    if (idx !== -1) {
+                        actionedItem = window.AppState.stats[cat][idx];
+                        window.AppState.stats[cat].splice(idx, 1);
+                        actionedCat = cat;
+                    }
+                }
+            });
+
+            if (actionedItem) {
+                actionedItem.verdict = 'Spam';
+                actionedItem.currentFolder = 'Junk Email';
+                window.AppState.stats.spam = window.AppState.stats.spam || [];
+                window.AppState.stats.spam.unshift(actionedItem);
+            }
+
+            if (actionedCat && actionedCat !== 'spam' && window.AppState.counts) {
+                if (window.AppState.counts[actionedCat] > 0) window.AppState.counts[actionedCat]--;
+                window.AppState.counts.spam = (window.AppState.counts.spam || 0) + 1;
+            }
+
+            window.AppState.renderDashboard(false);
         } else {
             if (typeof window.showNotification === "function") window.showNotification("Quarantine failed: " + ((res && res.error) || "Outlook could not locate or move the item."), true); else alert("Quarantine failed: " + ((res && res.error) || "Outlook could not locate or move the item."));
             if (btn) {
@@ -913,7 +967,8 @@ window.deleteIncident = (id) => {
             }
 
             // Clear detail panel if this incident was selected
-            if (window.selectedIncidentId === id) {
+            if (window.AppState.selectedId === id || window.selectedIncidentId === id) {
+                window.AppState.selectedId = null;
                 window.selectedIncidentId = null;
                 const detailPanel = document.getElementById('detail-panel');
                 if (detailPanel) {

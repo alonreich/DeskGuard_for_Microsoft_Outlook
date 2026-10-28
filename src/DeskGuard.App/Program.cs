@@ -152,6 +152,8 @@ internal static partial class Program
                 try
                 {
                     var result = await mapiService.ScanDuplicatesAsync(cts.Token);
+                    vault.SaveDuplicates(result.Items, "Finished");
+                    dashboard.PostEvent("duplicate-update", new { status = "Finished", items = result.Items, scanned = result.ScannedCount, found = result.Items.Count });
                     tray.ShowNotification("Duplicate Scan Complete", $"Found {result.Items.Count} duplicate items across {result.ScannedCount} emails.");
                 }
                 catch (Exception ex)

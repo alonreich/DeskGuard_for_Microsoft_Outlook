@@ -325,17 +325,15 @@ window.addActivity = (msg, type = 'info') => {
     if (stream.children.length > 100) stream.removeChild(stream.firstChild);
 };
 
-const originalAddLog = window.addLog;
 window.addLog = (msg) => {
     window.addActivity(msg);
-    if (originalAddLog) {
-        const container = document.getElementById('live-logs');
-        if (container) {
-            const line = document.createElement('div');
-            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-            container.appendChild(line);
-            container.scrollTop = container.scrollHeight;
-        }
+    const container = document.getElementById('live-logs');
+    if (container) {
+        const line = document.createElement('div');
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        container.appendChild(line);
+        container.scrollTop = container.scrollHeight;
+        if (container.children.length > 500) container.removeChild(container.firstChild);
     }
 };
 
@@ -415,11 +413,21 @@ window.explainTier = function(tier) {
 // Adds a sender address to the whitelist (used by "Release + Trust sender").
 window.trustSender = async function(sender) {
     if (!sender || !String(sender).includes('@')) return false;
+    const cleanSender = String(sender).trim().toLowerCase();
     const cfg = await api.getConfig();
-    const wl = (cfg && cfg.whitelist) || { emails: [], ips: [], domains: [], combos: [] };
-    wl.emails = Array.isArray(wl.emails) ? wl.emails : [];
-    if (!wl.emails.map(e => String(e).toLowerCase()).includes(String(sender).toLowerCase())) wl.emails.push(sender);
-    await api.setWhitelist(wl);
+    let wlList = [];
+    if (cfg && Array.isArray(cfg.whitelist)) {
+        wlList = [...cfg.whitelist];
+    } else if (cfg && cfg.whitelist && Array.isArray(cfg.whitelist.emails)) {
+        wlList = [...cfg.whitelist.emails];
+    }
+    if (!wlList.map(e => String(e).toLowerCase()).includes(cleanSender)) {
+        wlList.push(cleanSender);
+    }
+    await api.setWhitelist(wlList);
+    if (typeof api.trustSender === 'function') {
+        try { await api.trustSender(cleanSender); } catch (e) {}
+    }
     return true;
 };
 

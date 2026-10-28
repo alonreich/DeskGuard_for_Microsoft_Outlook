@@ -155,6 +155,24 @@ public sealed class ScoringEngineTests
     }
 
     [Fact]
+    public void NonDangerousAttachment_WithDangerousSubstringInName_IsNotPenalized()
+    {
+        EmailRecord email = new()
+        {
+            Sender = "dev@company.com",
+            Headers = "Received-SPF: pass\nAuthentication-Results: dkim=pass; dmarc=pass\n",
+            Body = "Here are the debug logs and frontend documentation.",
+            AttachmentsJson = "[{\"name\":\"release.cmd.log.txt\",\"size\":2048},{\"name\":\"react.js.pdf\",\"size\":4096}]"
+        };
+
+        SecurityVerdict result = _engine.ScoreEmail(email);
+
+        Assert.DoesNotContain(result.Penalties, p => p.Rule == "DANGEROUS_ATTACHMENT");
+        Assert.Equal(100.0, result.Score);
+        Assert.Equal("Safe", result.Verdict);
+    }
+
+    [Fact]
     public void WhatIf_WeightAdjustment_RecalculatesDeterministicScore()
     {
         EmailRecord email = new()
@@ -182,5 +200,81 @@ public sealed class ScoringEngineTests
         SecurityVerdict disabled = _engine.ScoreEmail(email, disabledConfig);
         Assert.Empty(disabled.Penalties);
         Assert.Equal(100.0, disabled.Score);
+    }
+
+    [Fact]
+    public void RdnsCheck_PenalizesFailedReverseDns()
+    {
+        EmailRecord email = new()
+        {
+            Sender = "mailer@questionable.net",
+            Headers = "Authentication-Results: mx.example.com; rdns=fail\n",
+            Body = "General notification text."
+        };
+
+        SecurityVerdict result = _engine.ScoreEmail(email);
+
+        SecurityPenalty? penalty = result.Penalties.FirstOrDefault(p => p.Key == "rdns");
+        Assert.NotNull(penalty);
+        Assert.Equal("RDNS_MISSING", penalty.Rule);
+        Assert.Equal(4.0, penalty.Points);
+    }
+
+    [Fact]
+    public void RblCheck_PenalizesGlobalBlacklistHit()
+    {
+        EmailRecord email = new()
+        {
+            Sender = "spammer@badsource.org",
+            Headers = "X-Spam-RBL: zen.spamhaus.org hit 127.0.0.2\n",
+            Body = "Buy cheap products now."
+        };
+
+        SecurityVerdict result = _engine.ScoreEmail(email);
+
+        SecurityPenalty? penalty = result.Penalties.FirstOrDefault(p => p.Key == "rbl");
+        Assert.NotNull(penalty);
+        Assert.Equal("GLOBAL_RBL_HIT", penalty.Rule);
+        Assert.Equal(10.0, penalty.Points);
+    }
+
+    [Fact]
+    public void HeuristicsCheck_PenalizesConfiguredSpamKeywords()
+    {
+        EmailRecord email = new()
+        {
+            Sender = "promo@marketing.com",
+            Headers = "Received-SPF: pass\n",
+            Subject = "Claim your lottery jackpot today",
+            Body = "Congratulations on your prize!"
+        };
+
+        ScanConfiguration config = new();
+        config.SpamKeywords.Add("lottery jackpot");
+
+        SecurityVerdict result = _engine.ScoreEmail(email, config);
+
+        SecurityPenalty? penalty = result.Penalties.FirstOrDefault(p => p.Key == "heuristics");
+        Assert.NotNull(penalty);
+        Assert.StartsWith("HEURISTICS:lottery jackpot", penalty.Rule);
+        Assert.Equal(6.0, penalty.Points);
+    }
+
+    [Fact]
+    public void SpamFlagCheck_PenalizesUpstreamXSpamFlag()
+    {
+        EmailRecord email = new()
+        {
+            Sender = "bulk@sender.net",
+            Headers = "X-Spam-Flag: YES\n",
+            Body = "Special discount offer."
+        };
+
+        SecurityVerdict result = _engine.ScoreEmail(email);
+
+        SecurityPenalty? penalty = result.Penalties.FirstOrDefault(p => p.Key == "spamflag");
+        Assert.NotNull(penalty);
+        Assert.Equal("HEADER:X-Spam-Flag", penalty.Rule);
+        Assert.Equal(4.0, penalty.Points);
     }
 }
