@@ -35,4 +35,6 @@ public interface IVaultRepository : IDisposable
     bool UpdateUserMoved(string id, string currentFolder);
     Dictionary<string, List<EmailRecord>> GetAllCategorizedEmails(int limitPerCat = 2000);
     void ImportLegacyData(string jsonContent);
+    void RecordAvScanResult(string entryId, string verdict, string? threatName = null);
+    List<EmailRecord> GetUnscannedAvEmails(int limit = 50);
 }

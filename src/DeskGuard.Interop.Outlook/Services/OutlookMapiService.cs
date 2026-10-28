@@ -14,6 +14,7 @@ using DeskGuard.Core.Interfaces;
 using DeskGuard.Core.Models;
 using DeskGuard.Core.Scoring;
 using DeskGuard.Core.Serialization;
+using DeskGuard.Core.Services;
 using DeskGuard.Interop.Outlook.Com;
 using DeskGuard.Interop.Outlook.Sta;
 using Microsoft.Office.Interop.Outlook;
@@ -24,6 +25,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
     private readonly OutlookStaCoordinator _coordinator;
     private readonly IVaultRepository _vault;
     private readonly ScoringEngine _scoringEngine;
+    private readonly LocalAntivirusService _localAvService = new();
     private ScanConfiguration _config;
     private readonly OutlookLiveWatcher _liveWatcher;
 
@@ -343,6 +345,83 @@ public sealed class OutlookMapiService : IOutlookMapiService
 
             LogProgress?.Invoke($"Crawl complete: {indexedCount} new items indexed into vault.");
         }, JobPriority.P2, "CrawlMailbox", cancellationToken);
+    }
+
+    public Task RunDeepAvBackgroundScanAsync(CancellationToken cancellationToken)
+    {
+        return _coordinator.EnqueueAsync(ct =>
+        {
+            if (!_config.DeepLocalAvScanAll) return;
+            LogProgress?.Invoke("Starting progressive background local AV scan (Microsoft Defender & ClamAV)...");
+            DeskGuard.Core.Logging.AppLogger.Info("[RunDeepAvBackgroundScanAsync] Starting background AV scan sweep...");
+
+            int scannedCount = 0;
+            while (!ct.IsCancellationRequested && _config.DeepLocalAvScanAll)
+            {
+                var unscannedBatch = _vault.GetUnscannedAvEmails(30);
+                if (unscannedBatch.Count == 0)
+                {
+                    break;
+                }
+
+                foreach (var email in unscannedBatch)
+                {
+                    if (ct.IsCancellationRequested || !_config.DeepLocalAvScanAll) break;
+
+                    try
+                    {
+                        List<AttachmentInfo>? atts = null;
+                        if (!string.IsNullOrWhiteSpace(email.AttachmentsJson))
+                        {
+                            try
+                            {
+                                atts = JsonSerializer.Deserialize(email.AttachmentsJson, DeskGuardJsonContext.Default.ListAttachmentInfo);
+                            }
+                            catch { }
+                        }
+
+                        var report = _localAvService.ScanEmailAsync(email, atts, ct).GetAwaiter().GetResult();
+                        string? threat = report.Pieces.FirstOrDefault(p => p.Verdict == "Infected")?.ThreatName;
+                        _vault.RecordAvScanResult(email.EntryId, report.OverallVerdict, threat);
+
+                        if (report.OverallVerdict == "Malicious")
+                        {
+                            _vault.RecordEvent(new SecurityEvent
+                            {
+                                Kind = "Malicious",
+                                MessageKey = email.Fingerprint,
+                                EntryId = email.EntryId,
+                                Subject = email.Subject,
+                                Sender = email.Sender,
+                                ToFolder = email.CurrentFolder,
+                                Score = 0,
+                                ReasonsJson = $"[{{\"Rule\":\"LOCAL_AV\",\"Evidence\":\"{threat ?? "Threat detected by local AV"}\"}}]"
+                            });
+                            LogProgress?.Invoke($"[Local AV] Threat detected in background scan on {email.Subject}: {threat}");
+                        }
+
+                        scannedCount++;
+                        if (scannedCount % 5 == 0)
+                        {
+                            LogProgress?.Invoke($"[Local AV] Progressively scanned {scannedCount} historical emails with Defender & ClamAV.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DeskGuard.Core.Logging.AppLogger.Warn($"[RunDeepAvBackgroundScanAsync] Error scanning email {email.EntryId}: {ex.Message}");
+                        _vault.RecordAvScanResult(email.EntryId, "Error", null);
+                    }
+
+                    _coordinator.YieldIfHighPriority(ct);
+                    if (_scanDelayMs > 0)
+                    {
+                        OutlookStaCoordinator.PumpDelay(_scanDelayMs, ct);
+                    }
+                }
+            }
+
+            LogProgress?.Invoke($"[Local AV] Progressive background AV scan completed. Total scanned: {scannedCount}.");
+        }, JobPriority.P3, "DeepAvBackgroundScan", cancellationToken);
     }
 
     public Task<DuplicateScanResult> ScanDuplicatesAsync(CancellationToken cancellationToken) =>
@@ -944,6 +1023,17 @@ public sealed class OutlookMapiService : IOutlookMapiService
                 if (item != null)
                 {
                     item.Display(false);
+                    Inspector? insp = null;
+                    try
+                    {
+                        insp = item.GetInspector;
+                        insp?.Activate();
+                    }
+                    catch { }
+                    finally
+                    {
+                        ComUtils.Release(insp);
+                    }
 
                     // Update relocation if entryId changed
                     string newEid = item.EntryID ?? string.Empty;
@@ -1194,6 +1284,39 @@ public sealed class OutlookMapiService : IOutlookMapiService
             else
             {
                 verdict = _scoringEngine.ScoreEmail(record, _config, explicitAttachments: attachments);
+            }
+
+            // Local Antivirus deep inspection (Defender & ClamAV)
+            bool shouldAvScan = _config.DeepLocalAvScanAll || verdict.Score < _config.Thresholds.SuspiciousThresholdPercent;
+            if (shouldAvScan && verdict.Verdict != "Malicious")
+            {
+                try
+                {
+                    var avReport = _localAvService.ScanEmailAsync(record, attachments).GetAwaiter().GetResult();
+                    if (avReport != null)
+                    {
+                        string avVerdict = avReport.OverallVerdict;
+                        string? infectedPieceThreat = avReport.Pieces.FirstOrDefault(p => p.Verdict == "Infected")?.ThreatName;
+                        _vault.RecordAvScanResult(record.EntryId, avVerdict, infectedPieceThreat);
+
+                        if (avVerdict == "Malicious")
+                        {
+                            verdict.Verdict = "Malicious";
+                            verdict.Score = 0.0;
+                            verdict.Penalties.Add(new SecurityPenalty
+                            {
+                                Rule = "LOCAL_AV",
+                                Key = "antivirus",
+                                Points = 100,
+                                Evidence = $"Local Antivirus detected threat: {infectedPieceThreat ?? "Malicious payload"}"
+                            });
+                        }
+                    }
+                }
+                catch (Exception avEx)
+                {
+                    DeskGuard.Core.Logging.AppLogger.Warn($"[OutlookMapiService] Local AV scan error on {record.EntryId}: {avEx.Message}");
+                }
             }
 
             record.Verdict = verdict.Verdict;

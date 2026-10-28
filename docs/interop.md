@@ -90,5 +90,6 @@ Windows User Interface Privilege Isolation (UIPI) forbids standard-integrity app
 - Connects to Outlook's default Inbox (`GetDefaultFolder(olFolderInbox)`).
 - Retains root folder references in `_watchedFolders` for the lifespan of the watcher to anchor COM event sinks and prevent table detachment.
 - Subscribes to `Items.ItemAdd`, extracts `EntryID` and `StoreID`, and immediately releases temporary RCWs in `finally` blocks.
-- When an item arrives, extracts metadata and dispatches asynchronous scoring without stalling Outlook's message handling thread.
+- **On-Access Scope Restriction**: In live arrival mode (`isLiveArrival`), real-time scoring is applied strictly to unread messages (`mailItem.UnRead`), avoiding redundant re-evaluations of existing read items.
+- **Continuous Historical Crawl**: Startup executes a fast priority sweep followed by a continuous background crawler (`RunCrawlerAsync`) traversing older messages down to `DateTime.MinValue`, preventing scans from stalling at intermediate batch thresholds (e.g., at 525 emails).
 - Automatically handles Outlook restarts: detects process exit and re-binds as soon as Outlook re-launches.

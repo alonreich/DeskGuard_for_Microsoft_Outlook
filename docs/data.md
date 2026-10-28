@@ -49,10 +49,18 @@ src/DeskGuard.Data/
 Emails are fingerprinted using a composite hash:
 `SHA-256(Normalized_Sender + Normalized_Subject + SentUtc_Timestamp + BodyText_Snippet + AttachmentCount)`
 
-### 4.2 Duplicate Classification
-When duplicate fingerprints are detected:
-- **Primary / Master Copy**: Oldest received item or item residing in a prioritized folder (e.g. Inbox / Archive over Trash / Junk).
-- **Secondary / Redundant Copies**: Flagged for safe one-click removal.
+### 4.2 Duplicate Classification & Survivor Protection
+When duplicate fingerprints are detected across mailbox folders:
+- **Folder Priority Hierarchy**: The surviving primary copy is elected based on deterministic folder importance:
+  1. `olFolderInbox` (Rank 1 - Highest priority, default surviving copy)
+  2. `olFolderSentMail` (Rank 2)
+  3. User Folders & PST Archive Folders (Rank 3/4)
+  4. `olFolderJunk` (Rank 10)
+  5. `\SUMC ISSUES\CONFLICTS` and Sync Issues (Rank 20)
+  6. `olFolderDeletedItems` (Rank 99 - Lowest priority)
+- **Tie-Breaking Rule**: If duplicates reside in the same folder tier, the oldest received item (`SentUtc`) is elected as the primary survivor.
+- **Survivor Protection Invariant**: The elected survivor copy is permanently marked as protected (`🛡️ SOLE SURVIVOR`). It cannot be checked or targeted by batch selection ("Select All"), guaranteeing that at least one authentic copy is preserved without accidental data loss.
+- **Redundant Copies**: All non-surviving copies are presented with individual selection checkboxes and direct "Open in Outlook" jump buttons.
 
 ### 4.3 Safe Deletion Modes
 - **`safe` (Recommended)**: Moves duplicate items to Outlook's "Deleted Items" folder so the action can be undone by the user.

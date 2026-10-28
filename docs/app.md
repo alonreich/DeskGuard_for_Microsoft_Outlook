@@ -28,13 +28,13 @@ src/DeskGuard.App/
     |-- style.css               # Modern dark-mode UI stylesheet with CSS variables
     |-- bridge.js               # Frontend IPC bridge wrapping window.chrome.webview.postMessage
     |-- ui_main.js              # State manager (AppState), live updates, tab navigation, global shortcuts
-    |-- ui_list.js              # Scanned emails table, verdict badges, column sorting, incident actions
-    |-- ui_forensics.js         # Security forensics modal (penalty breakdowns, MIME headers, raw analysis)
-    |-- ui_duplicates.js        # Deduplication viewer, column resizers, search filter, batch cleanup
+    |-- ui_list.js              # Full-width incident table, column resizers with memory, 5 action buttons
+    |-- ui_forensics.js         # Dedicated Forensic Report tab & deep inspection viewer (penalties, headers, body)
+    |-- ui_duplicates.js        # Duplicate Email Finder with cluster cards, survivor lock, and redundant batch cleanup
     |-- ui_activity.js          # Security event activity feed (quarantined, released, trusted events)
     |-- ui_engines.js           # 16-engine sensitivity sliders, weights rebalancing, and threshold bar
     |-- ui_search.js            # Real-time search query builder, datalists, and vault query filters
-    |-- ui_settings.js          # System configuration form (startup, speed, scan modes, threat intel)
+    |-- ui_settings.js          # 5-tab settings console (General, Engines, Cloud/VT, Senders/Rules, Danger Zone)
     |-- ui_reset.js             # Vault purge and factory reset wizard (Safe Upgrade / Scorched Earth)
     `-- ui_modals.js            # Universal draggable, 8-directional resizable modal window manager
 ```
@@ -56,13 +56,16 @@ Communication between `DashboardWindow.cs` and `wwwroot/*.js` operates asynchron
 JavaScript invokes backend operations through `window.securityApi.*`:
 - `get-stats`: Fetches total counts, threat tallies, and categorized emails (`{ full, stats, counts }`).
 - `get-config`: Retrieves current scan configuration, engine weights, thresholds, whitelists, and startup status.
-- `set-enabled`: Toggles master real-time mailbox sentinel monitoring on/off (triggers 7-day sweep on enable).
+- `set-enabled`: Toggles master real-time mailbox sentinel monitoring on/off (triggers 7-day sweep only when transitioning from disabled to enabled).
 - `set-history-enabled`: Toggles background sweep processing.
 - `set-scanning-speed`: Adjusts scan speed delay `(100 - speed) * 4` ms.
 - `set-threat-intel-level`: Updates threat intelligence tier (0=Local, 1=Community DNS, 2=Aggressive Cloud).
-- `set-vt-key`: Updates VirusTotal API key for multi-vendor cloud scans.
+- `set-vt-key`: Updates VirusTotal API key (encrypted at rest using Win32 DPAPI).
+- `test-vt-key`: Validates VirusTotal API key against live cloud endpoint using EICAR test hash.
+- `set-theme`: Persists and applies UI theme preference (`"dark"` or `"light"`).
+- `restore-defaults`: Resets all scan settings, engine weights, and threshold values to factory defaults.
 - `set-rubrics`: Updates scoring weights, engine toggles, and threshold percentages.
-- `set-scan-modes`: Updates on-access mode, deep history toggle, spam destination, and Outlook labeling.
+- `set-scan-modes`: Updates on-access mode, deep history toggle, history scan scope (`"unread"` vs `"all"`), spam destination, and Outlook labeling.
 - `start-full-scan`: Dispatches background sweep of all historical emails across all discovered mail folders.
 - `set-startup`: Enables/disables auto-start via Windows Registry Run key.
 - `check-startup`: Queries current status of Windows Registry Run key.
@@ -85,8 +88,8 @@ JavaScript invokes backend operations through `window.securityApi.*`:
 - `trust-sender`: Whitelists sender address and records trust event.
 - `set-whitelist` / `set-blacklist`: Persists approved/blocked sender addresses.
 - `set-spam-keywords`: Updates custom spam keyword heuristic filters.
-- `export-config`: Exports configuration policy as a JSON string/file.
-- `import-config`: Imports and applies security policy configuration JSON.
+- `export-config`: Exports configuration policy as sanitized JSON (redacting DPAPI secrets and window coordinates).
+- `import-config`: Safely imports and merges non-destructive security policy configuration without overwriting master power state.
 - `app-reset`: Executes safe incident cache purge or complete scorched-earth reset.
 - `save-modal-config` / `get-modal-config`: Persists and restores custom modal window dimensions and positions.
 
@@ -98,6 +101,16 @@ Backend pushes real-time telemetry via `DashboardWindow.PostEvent(channel, data)
 - `outlook-status`: Notifies frontend of Outlook process connection or disconnection.
 - `stats-update`: Real-time aggregate count refresh across categories.
 - `status-sync`: Synchronizes master power toggle across UI controls.
+
+### 4.3 Modern Navigation & User Interface Layout
+- **7-Tier Sidebar Hierarchy**: Ordered by operational relevance and workflow priority:
+  1. **Dashboard** (`#tab-dashboard`): Full-width incident table with resizable columns (persisted via `localStorage`), verdict pill badges, double-click to view in Outlook, and 5 direct row-action buttons: `[Open in Outlook]`, `[Forensic Report]`, `[VirusTotal]`, `[Delete Item]`, `[Quarantine]`.
+  2. **Duplicate Email Finder** (`#tab-duplicates`): Clustered duplicate grouping cards with folder-hierarchy-based survivor election (`Inbox` > `Sent` > user folders > `Junk` > `Conflicts` > `Deleted`). Displays a locked `🛡️ SOLE SURVIVOR: KEEPING SAFE` banner with direct Outlook navigation. Batch selection targets only redundant copies, preventing accidental loss of the surviving copy.
+  3. **Forensic Report** (`#tab-forensics`): Dedicated full-screen investigation workspace featuring email overview badges, 100-point penalty deduction breakdown, full message body viewer, complete MIME transport headers inspector, and direct remediation controls.
+  4. **Search Through Emails** (`#tab-search`): Indexed metadata and keyword query builder across all cached mail records.
+  5. **Activity Feed** (`#tab-activity`): Live security audit trail for quarantined, released, and trusted sender events.
+  6. **Audit Logs** (`#tab-logs`): Real-time streaming diagnostic console and system event logs.
+  7. **Settings** (`#tab-settings`): Streamlined 5-tab preferences console (`General & Startup`, `Anti-Spam Engines`, `Threat Cloud & VirusTotal`, `Senders & Rules`, `Maintenance & Danger Zone`) with instant search, DPAPI password masking/unmasking, live VirusTotal API validation, theme toggle, and factory restore controls.
 
 ---
 

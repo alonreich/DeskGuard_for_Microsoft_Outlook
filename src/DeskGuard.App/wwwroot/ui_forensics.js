@@ -24,6 +24,10 @@ window.renderForensicsTab = async (item) => {
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
                 Open in Outlook
             </button>
+            <button type="button" class="btn-ui" onclick="window.forensicsScanAv()" style="font-size: 0.78rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px; background: rgba(0, 120, 212, 0.12); border-color: var(--accent); color: var(--accent); font-weight: 700;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                Scan AV (Defender &amp; ClamAV)
+            </button>
             <button type="button" class="btn-ui" onclick="window.forensicsScanVirusTotal()" style="font-size: 0.78rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>
                 VirusTotal
@@ -208,6 +212,13 @@ window.forensicsOpenInOutlook = () => {
     }
 };
 
+window.forensicsScanAv = () => {
+    if (window.currentForensicsItem && typeof window.scanEmailAv === 'function') {
+        const btn = document.getElementById('btn-forensics-av');
+        window.scanEmailAv(window.currentForensicsItem, btn);
+    }
+};
+
 window.forensicsScanVirusTotal = () => {
     if (window.currentForensicsItem && typeof window.cloudScanIncident === 'function') {
         window.cloudScanIncident(window.currentForensicsItem.entryId || window.currentForensicsItem.id);
@@ -216,7 +227,7 @@ window.forensicsScanVirusTotal = () => {
 
 window.forensicsQuarantine = () => {
     if (window.currentForensicsItem && typeof window.quarantineIncident === 'function') {
-        window.quarantineIncident(window.currentForensicsItem.entryId || window.currentForensicsItem.id, window.currentForensicsItem.fingerprint);
+        window.quarantineIncident(window.currentForensicsItem.entryId || window.currentForensicsItem.id, window.currentForensicsItem.fingerprint, window.currentForensicsItem.storeId);
     }
 };
 

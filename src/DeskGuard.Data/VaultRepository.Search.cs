@@ -20,6 +20,179 @@ public sealed partial class VaultRepository
     [GeneratedRegex(@"^[\p{L}\p{N}_*?]+$", RegexOptions.Compiled)]
     private static partial Regex SimpleWordWildcardRegex();
 
+    [GeneratedRegex(@"(?i)\bfrom:(?:""(?<val>[^""]+)""|(?<val>[^\s]+))", RegexOptions.Compiled)]
+    private static partial Regex FromOperatorRegex();
+
+    [GeneratedRegex(@"(?i)\bto:(?:""(?<val>[^""]+)""|(?<val>[^\s]+))", RegexOptions.Compiled)]
+    private static partial Regex ToOperatorRegex();
+
+    [GeneratedRegex(@"(?i)\bsubject:(?:""(?<val>[^""]+)""|(?<val>[^\s]+))", RegexOptions.Compiled)]
+    private static partial Regex SubjectOperatorRegex();
+
+    [GeneratedRegex(@"(?i)\bfolder:(?:""(?<val>[^""]+)""|(?<val>[^\s]+))", RegexOptions.Compiled)]
+    private static partial Regex FolderOperatorRegex();
+
+    [GeneratedRegex(@"(?i)\bhas:(?:noattach|noattachment)\b", RegexOptions.Compiled)]
+    private static partial Regex HasNoAttachRegex();
+
+    [GeneratedRegex(@"(?i)\bhas:(?:attach|attachment)\b", RegexOptions.Compiled)]
+    private static partial Regex HasAttachRegex();
+
+    [GeneratedRegex(@"(?i)\bscore:(?<op><=|>=|<|>|=)?(?<val>\d+)\b", RegexOptions.Compiled)]
+    private static partial Regex ScoreOperatorRegex();
+
+    [GeneratedRegex(@"(?i)\bis:(?<val>unread|read|malicious|spam|suspicious|safe|clean)\b", RegexOptions.Compiled)]
+    private static partial Regex IsOperatorRegex();
+
+    [GeneratedRegex(@"(?i)\bverdict:(?<val>[a-zA-Z]+)\b", RegexOptions.Compiled)]
+    private static partial Regex VerdictOperatorRegex();
+
+    [GeneratedRegex(@"(?i)\b(?:after|since|date:>|date:>=):(?<val>\d{4}-\d{2}-\d{2})\b", RegexOptions.Compiled)]
+    private static partial Regex DateAfterRegex();
+
+    [GeneratedRegex(@"(?i)\b(?:before|until|date:<|date:<=):(?<val>\d{4}-\d{2}-\d{2})\b", RegexOptions.Compiled)]
+    private static partial Regex DateBeforeRegex();
+
+    [GeneratedRegex(@"""(?<phrase>[^""]+)""|(?<word>[^\s""]+)", RegexOptions.Compiled)]
+    private static partial Regex TokenizeTermsRegex();
+
+    public static (string CleanedQuery, List<string> Conditions, List<object> Bindings) ParseSearchOperators(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return (string.Empty, [], []);
+        }
+
+        List<string> conds = [];
+        List<object> binds = [];
+        string current = query;
+
+        current = FromOperatorRegex().Replace(current, m =>
+        {
+            string val = m.Groups["val"].Value;
+            conds.Add("e.sender LIKE ? ESCAPE '\\'");
+            binds.Add($"%{LikeEscape(val)}%");
+            return " ";
+        });
+
+        current = ToOperatorRegex().Replace(current, m =>
+        {
+            string val = m.Groups["val"].Value;
+            conds.Add("e.recipient LIKE ? ESCAPE '\\'");
+            binds.Add($"%{LikeEscape(val)}%");
+            return " ";
+        });
+
+        current = SubjectOperatorRegex().Replace(current, m =>
+        {
+            string val = m.Groups["val"].Value;
+            conds.Add("e.subject LIKE ? ESCAPE '\\'");
+            binds.Add($"%{LikeEscape(val)}%");
+            return " ";
+        });
+
+        current = FolderOperatorRegex().Replace(current, m =>
+        {
+            string val = m.Groups["val"].Value;
+            conds.Add("e.current_folder LIKE ? ESCAPE '\\'");
+            binds.Add($"%{LikeEscape(val)}%");
+            return " ";
+        });
+
+        current = HasNoAttachRegex().Replace(current, _ =>
+        {
+            conds.Add("(e.attachments_json IS NULL OR e.attachments_json = '' OR e.attachments_json = '[]')");
+            return " ";
+        });
+
+        current = HasAttachRegex().Replace(current, _ =>
+        {
+            conds.Add("(e.attachments_json IS NOT NULL AND e.attachments_json != '' AND e.attachments_json != '[]')");
+            return " ";
+        });
+
+        current = ScoreOperatorRegex().Replace(current, m =>
+        {
+            string op = m.Groups["op"].Success && !string.IsNullOrEmpty(m.Groups["op"].Value) ? m.Groups["op"].Value : "=";
+            if (double.TryParse(m.Groups["val"].Value, out double scoreVal))
+            {
+                conds.Add($"e.score {op} ?");
+                binds.Add(scoreVal);
+            }
+            return " ";
+        });
+
+        current = IsOperatorRegex().Replace(current, m =>
+        {
+            string val = m.Groups["val"].Value.ToLowerInvariant();
+            switch (val)
+            {
+                case "unread":
+                    conds.Add("e.unread = 1");
+                    break;
+                case "read":
+                    conds.Add("e.unread = 0");
+                    break;
+                case "malicious":
+                    conds.Add("LOWER(e.verdict) LIKE '%malicious%'");
+                    break;
+                case "spam":
+                    conds.Add("LOWER(e.verdict) LIKE '%spam%'");
+                    break;
+                case "suspicious":
+                    conds.Add("LOWER(e.verdict) LIKE '%suspicious%'");
+                    break;
+                case "clean":
+                case "safe":
+                    conds.Add("(LOWER(e.verdict) LIKE '%clean%' OR LOWER(e.verdict) LIKE '%safe%')");
+                    break;
+            }
+            return " ";
+        });
+
+        current = VerdictOperatorRegex().Replace(current, m =>
+        {
+            string val = m.Groups["val"].Value.ToLowerInvariant();
+            conds.Add("LOWER(e.verdict) = ?");
+            binds.Add(val);
+            return " ";
+        });
+
+        current = DateAfterRegex().Replace(current, m =>
+        {
+            conds.Add("e.date >= ?");
+            binds.Add(m.Groups["val"].Value);
+            return " ";
+        });
+
+        current = DateBeforeRegex().Replace(current, m =>
+        {
+            conds.Add("e.date <= ?");
+            binds.Add(m.Groups["val"].Value);
+            return " ";
+        });
+
+        return (current.Trim(), conds, binds);
+    }
+
+    private static string[] TokenizeQueryTerms(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return [];
+        List<string> terms = [];
+        foreach (Match m in TokenizeTermsRegex().Matches(query))
+        {
+            if (m.Groups["phrase"].Success && !string.IsNullOrWhiteSpace(m.Groups["phrase"].Value))
+            {
+                terms.Add(m.Groups["phrase"].Value.Trim());
+            }
+            else if (m.Groups["word"].Success && !string.IsNullOrWhiteSpace(m.Groups["word"].Value))
+            {
+                terms.Add(m.Groups["word"].Value.Trim());
+            }
+        }
+        return terms.ToArray();
+    }
+
     private sealed class FtsQueryResult
     {
         public List<string> Parts { get; } = [];
@@ -36,6 +209,12 @@ public sealed partial class VaultRepository
             bool infix = core.Contains('*') || core.Contains('?');
 
             if (string.IsNullOrEmpty(core)) continue;
+
+            if (core.Contains(' '))
+            {
+                outResult.Parts.Add($"\"{core.Replace("\"", "\"\"")}\"");
+                continue;
+            }
 
             if (!infix)
             {
@@ -194,7 +373,11 @@ public sealed partial class VaultRepository
                     bindings.Add($"%{LikeEscape(parameters.ToFilter.Trim())}%");
                 }
 
-                string[] terms = (parameters.Query ?? string.Empty).Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+                var (cleanQuery, opConds, opBinds) = ParseSearchOperators(parameters.Query);
+                conditions.AddRange(opConds);
+                bindings.AddRange(opBinds);
+
+                string[] terms = TokenizeQueryTerms(cleanQuery);
                 FtsQueryResult fts = BuildFtsQuery(terms);
                 if (fts.NoMatch)
                 {

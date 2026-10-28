@@ -303,6 +303,7 @@ function createIncidentRowElement() {
     dateEl.style.overflow = 'hidden';
     dateEl.style.textOverflow = 'ellipsis';
     dateEl.style.whiteSpace = 'nowrap';
+    dateEl.style.textAlign = 'center';
 
     const timeEl = document.createElement('div');
     timeEl.style.fontFamily = 'monospace';
@@ -311,6 +312,7 @@ function createIncidentRowElement() {
     timeEl.style.overflow = 'hidden';
     timeEl.style.textOverflow = 'ellipsis';
     timeEl.style.whiteSpace = 'nowrap';
+    timeEl.style.textAlign = 'center';
 
     const fromEl = document.createElement('div');
     fromEl.style.overflow = 'hidden';
@@ -318,6 +320,7 @@ function createIncidentRowElement() {
     fromEl.style.whiteSpace = 'nowrap';
     fromEl.style.fontSize = '0.75rem';
     fromEl.style.color = 'var(--text)';
+    fromEl.style.textAlign = 'center';
 
     const toEl = document.createElement('div');
     toEl.style.overflow = 'hidden';
@@ -325,6 +328,7 @@ function createIncidentRowElement() {
     toEl.style.whiteSpace = 'nowrap';
     toEl.style.fontSize = '0.75rem';
     toEl.style.color = 'var(--muted)';
+    toEl.style.textAlign = 'center';
 
     const subjEl = document.createElement('div');
     subjEl.style.fontWeight = '600';
@@ -332,10 +336,12 @@ function createIncidentRowElement() {
     subjEl.style.overflow = 'hidden';
     subjEl.style.textOverflow = 'ellipsis';
     subjEl.style.whiteSpace = 'nowrap';
+    subjEl.style.textAlign = 'center';
 
     const badgeCol = document.createElement('div');
     badgeCol.style.display = 'flex';
     badgeCol.style.alignItems = 'center';
+    badgeCol.style.justifyContent = 'center';
     badgeCol.style.gap = '4px';
     badgeCol.style.overflow = 'hidden';
 
@@ -352,12 +358,13 @@ function createIncidentRowElement() {
     scoreEl.style.fontFamily = 'monospace';
     scoreEl.style.fontSize = '0.75rem';
     scoreEl.style.fontWeight = '700';
-    scoreEl.style.textAlign = 'right';
+    scoreEl.style.textAlign = 'center';
 
     // 8th cell: 5 Row Action Buttons in requested order:
-    // 1. Open in Outlook, 2. Forensic Report, 3. Virus Total, 4. delete item, 5. Quarantine
+    // 1. Open in Outlook, 2. Forensic Report, 3. AV Scan (Defender/ClamAV), 4. delete item, 5. Quarantine
     const actionsEl = document.createElement('div');
     actionsEl.className = 'row-actions-cell';
+    actionsEl.style.justifyContent = 'center';
 
     const btnOutlook = document.createElement('button');
     btnOutlook.type = 'button';
@@ -374,8 +381,8 @@ function createIncidentRowElement() {
     const btnVt = document.createElement('button');
     btnVt.type = 'button';
     btnVt.className = 'row-action-btn';
-    btnVt.title = 'VirusTotal Multi-Engine Threat Audit';
-    btnVt.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg> VirusTotal`;
+    btnVt.title = 'Multi-Engine AV Threat Scan (Microsoft Defender & ClamAV)';
+    btnVt.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> AV Scan`;
 
     const btnDel = document.createElement('button');
     btnDel.type = 'button';
@@ -432,8 +439,24 @@ function updateIncidentRowElement(div, item, index) {
     if (cells.timeEl.textContent !== timeStr) cells.timeEl.textContent = timeStr;
 
     const fromText = item.sender || item.from || 'Unknown';
-    if (cells.fromEl.textContent !== fromText) {
-        cells.fromEl.textContent = fromText;
+    let trustBadgeHtml = '';
+    const vLower = (item.verdict || '').toLowerCase();
+    const scoreVal = typeof item.score === 'number' ? item.score : 100;
+    const isWhitelisted = window.AppState && window.AppState.config && Array.isArray(window.AppState.config.whitelist) &&
+        window.AppState.config.whitelist.some(w => fromText.toLowerCase().includes(w.toLowerCase()));
+
+    if (vLower.includes('malicious') || scoreVal < 30) {
+        trustBadgeHtml = '<span class="trust-badge-threat" title="High Threat Sender">🚫 Threat</span>';
+    } else if (isWhitelisted || scoreVal >= 90) {
+        trustBadgeHtml = '<span class="trust-badge-org" title="Trusted Sender / Known Organization">⭐ Trusted Org</span>';
+    } else {
+        trustBadgeHtml = '<span class="trust-badge-ext" title="External Domain / First Contact">⚠️ External</span>';
+    }
+
+    const currentFromKey = `${trustBadgeHtml}:${fromText}`;
+    if (cells.fromEl._lastKey !== currentFromKey) {
+        cells.fromEl._lastKey = currentFromKey;
+        cells.fromEl.innerHTML = `${trustBadgeHtml}<span>${window.escapeHtml ? window.escapeHtml(fromText) : fromText}</span>`;
         cells.fromEl.title = fromText;
     }
 
@@ -506,7 +529,7 @@ function updateIncidentRowElement(div, item, index) {
     };
     cells.btnVt.onclick = (e) => {
         e.stopPropagation();
-        window.cloudScanIncident(item.entryId || item.id);
+        window.scanEmailAv(item, cells.btnVt);
     };
     cells.btnDel.onclick = (e) => {
         e.stopPropagation();
@@ -514,7 +537,7 @@ function updateIncidentRowElement(div, item, index) {
     };
     cells.btnQuar.onclick = (e) => {
         e.stopPropagation();
-        window.quarantineIncident(item.entryId || item.id, item.fingerprint);
+        window.quarantineIncident(item.entryId || item.id, item.fingerprint, item.storeId);
     };
 
     div.ondblclick = () => window.openIncidentInOutlook(item);
@@ -751,27 +774,152 @@ window.selectIncident = async (item) => {
 };
 
 window.handleListKeyNavigation = (e) => {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    // Ignore keystrokes inside input / textarea / select or contentEditable elements
+    const activeTag = document.activeElement ? document.activeElement.tagName.toUpperCase() : '';
+    if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT' || (document.activeElement && document.activeElement.isContentEditable)) {
+        return;
+    }
+
+    // Toggle cheat sheet with '?'
+    if (e.key === '?') {
+        e.preventDefault();
+        window.openKeyboardShortcutsHelp();
+        return;
+    }
+
     const cat = window.AppState.currentCategory;
     const items = (window.incidentVirtualList && window.incidentVirtualList.items) || window.AppState.stats[cat] || [];
     if (items.length === 0) return;
-    
+
     const currentIndex = items.findIndex(i => (i.entryId || i.fingerprint) === window.AppState.selectedId);
-    let nextIndex = 0;
-    
-    if (currentIndex === -1) {
-        nextIndex = 0;
-    } else if (e.key === 'ArrowDown') {
-        nextIndex = Math.min(items.length - 1, currentIndex + 1);
-    } else if (e.key === 'ArrowUp') {
-        nextIndex = Math.max(0, currentIndex - 1);
-    }
-    
-    if (nextIndex !== currentIndex && items[nextIndex]) {
+    const selectedItem = currentIndex !== -1 ? items[currentIndex] : items[0];
+
+    // Navigation: J or ArrowDown
+    if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'J') {
         e.preventDefault();
-        window.selectIncident(items[nextIndex]);
-        if (window.incidentVirtualList) {
-            window.incidentVirtualList.scrollToIndex(nextIndex);
+        const nextIndex = currentIndex === -1 ? 0 : Math.min(items.length - 1, currentIndex + 1);
+        if (items[nextIndex]) {
+            window.selectIncident(items[nextIndex]);
+            if (window.incidentVirtualList) window.incidentVirtualList.scrollToIndex(nextIndex);
+        }
+        return;
+    }
+
+    // Navigation: K or ArrowUp
+    if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        const prevIndex = currentIndex === -1 ? 0 : Math.max(0, currentIndex - 1);
+        if (items[prevIndex]) {
+            window.selectIncident(items[prevIndex]);
+            if (window.incidentVirtualList) window.incidentVirtualList.scrollToIndex(prevIndex);
+        }
+        return;
+    }
+
+    if (!selectedItem) return;
+
+    // Action: Open in Outlook (Enter or O)
+    if (e.key === 'Enter' || e.key === 'o' || e.key === 'O') {
+        e.preventDefault();
+        if (typeof window.openItemInOutlook === 'function') {
+            window.openItemInOutlook(selectedItem.entryId, selectedItem.storeId, selectedItem.fingerprint, selectedItem.messageId);
+        }
+        return;
+    }
+
+    // Action: Forensic Report (F)
+    if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        if (typeof window.openForensics === 'function') {
+            window.openForensics(selectedItem);
+        }
+        return;
+    }
+
+    // Action: AV Scan (S)
+    if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        if (typeof window.scanEmailAv === 'function') {
+            window.scanEmailAv(selectedItem.entryId, selectedItem.fingerprint);
+        }
+        return;
+    }
+
+    // Action: Quarantine (Q)
+    if (e.key === 'q' || e.key === 'Q') {
+        e.preventDefault();
+        if (typeof window.quarantineIncident === 'function') {
+            window.quarantineIncident(selectedItem.entryId, selectedItem.fingerprint);
+        }
+        return;
+    }
+
+    // Action: Delete (D)
+    if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        if (typeof window.deleteIncident === 'function') {
+            window.deleteIncident(selectedItem.entryId, selectedItem.fingerprint);
+        }
+        return;
+    }
+};
+
+window.openKeyboardShortcutsHelp = function() {
+    if (typeof window.openModal === 'function') {
+        window.openModal('keyboard-shortcuts-modal');
+    }
+};
+
+window.activeFilterChips = new Set();
+window.toggleFilterChip = function(syntaxToken) {
+    const searchInput = document.getElementById('vault-search-input');
+    if (!searchInput) return;
+
+    let queryToken = syntaxToken;
+    if (syntaxToken === 'recent:7d') {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        queryToken = `after:${yyyy}-${mm}-${dd}`;
+    }
+
+    let val = searchInput.value.trim();
+    const tokenRegex = new RegExp(`(^|\\s)${queryToken.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}(\\s|$)`, 'i');
+
+    if (tokenRegex.test(val)) {
+        val = val.replace(tokenRegex, ' ').trim();
+        window.activeFilterChips.delete(syntaxToken);
+    } else {
+        val = val ? `${val} ${queryToken}` : queryToken;
+        window.activeFilterChips.add(syntaxToken);
+    }
+
+    searchInput.value = val;
+    window.syncFilterChipStyles();
+    if (typeof window.executeVaultSearch === 'function') {
+        window.executeVaultSearch();
+    }
+};
+
+window.syncFilterChipStyles = function() {
+    const searchInput = document.getElementById('vault-search-input');
+    const val = (searchInput ? searchInput.value : '').toLowerCase();
+
+    const chipMap = {
+        'chip-attach': /has:attach/i,
+        'chip-unread': /is:unread/i,
+        'chip-malicious': /is:malicious/i,
+        'chip-spam': /is:spam/i,
+        'chip-highrisk': /score:<50/i,
+        'chip-safe': /is:(?:clean|safe)/i
+    };
+
+    for (const [id, regex] of Object.entries(chipMap)) {
+        const chip = document.getElementById(id);
+        if (chip) {
+            chip.classList.toggle('active', regex.test(val));
         }
     }
 };
@@ -858,14 +1006,14 @@ window.releaseIncident = async (entryId, fingerprint, trustSenderAddress) => {
     }
 };
 
-window.quarantineIncident = async (entryId, fingerprint) => {
+window.quarantineIncident = async (entryId, fingerprint, storeId) => {
     const btn = document.getElementById('btn-quarantine');
     if (btn) {
         btn.disabled = true;
         btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Quarantining...`;
     }
     try {
-        const res = await window.securityApi.quarantineEmail({ entryId, fingerprint, targetFolder: 23 });
+        const res = await window.securityApi.quarantineEmail({ entryId, storeId: storeId || '', fingerprint, targetFolder: 23 });
         if (res && (res.success || res.ok)) {
             const panel = document.getElementById('detail-panel');
             if (panel) {
@@ -875,6 +1023,14 @@ window.quarantineIncident = async (entryId, fingerprint) => {
                         <h3 style="margin: 0 0 8px 0; color: var(--text);">Email Quarantined</h3>
                         <p style="color: var(--muted); margin: 0; font-size: 0.85rem;">The message was successfully moved to Outlook Junk Email.</p>
                     </div>`;
+            }
+
+            if (window.currentForensicsItem && ((window.currentForensicsItem.entryId || window.currentForensicsItem.id) === entryId || (fingerprint && window.currentForensicsItem.fingerprint === fingerprint))) {
+                window.currentForensicsItem.verdict = 'Quarantined';
+                window.currentForensicsItem.currentFolder = 'Junk Email';
+                if (typeof window.showNotification === 'function') {
+                    window.showNotification("Email successfully quarantined and moved to Junk Email.");
+                }
             }
 
             let actionedItem = null;
@@ -988,11 +1144,171 @@ window.saveVirusTotalKeyFromWizard = async () => {
     }
 };
 
+window.scanEmailAv = async (item, triggerBtn) => {
+    if (!item) return;
+    const entryId = item.entryId || item.id;
+
+    const modal = document.getElementById('virustotal-modal');
+    const titleEl = document.getElementById('virustotal-title');
+    const bodyEl = document.getElementById('virustotal-body');
+    if (modal) modal.classList.add('active');
+    if (titleEl) titleEl.textContent = 'Multi-Engine Antivirus & Threat Audit (Defender & ClamAV)';
+
+    if (bodyEl) {
+        bodyEl.innerHTML = `
+            <div style="padding: 28px 20px; text-align: center;">
+                <div style="width: 48px; height: 48px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px auto;"></div>
+                <div id="av-live-step" style="font-weight: 700; font-size: 1.15rem; color: var(--accent); margin-bottom: 8px;">Disassembling Email Components...</div>
+                <div id="av-live-msg" style="font-size: 0.85rem; color: var(--muted); margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto; line-height: 1.5;">
+                    Extracting message headers, body payload, and file attachments for isolated antivirus inspection...
+                </div>
+                <div style="width: 100%; height: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow: hidden; max-width: 450px; margin: 0 auto; border: 1px solid var(--border);">
+                    <div id="av-live-bar" style="width: 15%; height: 100%; background: linear-gradient(90deg, var(--accent), #00d2ff); transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    if (triggerBtn) {
+        triggerBtn.disabled = true;
+        triggerBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Scanning...`;
+    }
+
+    try {
+        const res = await window.securityApi.scanAvLocal(entryId);
+        if (res && res.success && res.report) {
+            window.renderAvScanReport(res.report, item);
+        } else {
+            if (bodyEl) {
+                bodyEl.innerHTML = `
+                    <div style="padding: 24px; text-align: center;">
+                        <div style="color: var(--danger); font-size: 1rem; font-weight: 700; margin-bottom: 8px;">Antivirus Scan Notice</div>
+                        <div style="color: var(--muted); font-size: 0.85rem; margin-bottom: 16px;">${window.escapeHtml((res && res.error) || 'Failed to complete local antivirus scan.')}</div>
+                        <button type="button" class="btn-ui" onclick="window.closeVirusTotalModal()">Close</button>
+                    </div>
+                `;
+            }
+        }
+    } catch (err) {
+        if (bodyEl) {
+            bodyEl.innerHTML = `<div style="padding: 24px; color: var(--danger); text-align: center;">Scan Error: ${window.escapeHtml(err.message)}</div>`;
+        }
+    } finally {
+        if (triggerBtn) {
+            triggerBtn.disabled = false;
+            triggerBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> AV Scan`;
+        }
+    }
+};
+
+window.renderAvScanReport = (rep, item) => {
+    const body = document.getElementById('virustotal-body');
+    if (!body || !rep) return;
+
+    const isMalicious = rep.overallVerdict === 'Malicious';
+    const statusBg = isMalicious ? 'rgba(241, 112, 123, 0.12)' : 'rgba(35, 134, 54, 0.12)';
+    const statusBorder = isMalicious ? 'var(--danger)' : 'var(--ok)';
+    const statusColor = isMalicious ? 'var(--danger)' : 'var(--ok)';
+    const statusIcon = isMalicious ? '⚠️ THREAT DETECTED' : '🛡️ VERIFIED CLEAN (ALL COMPONENTS SAFE)';
+
+    let piecesHtml = '';
+    if (rep.pieces && rep.pieces.length > 0) {
+        piecesHtml = rep.pieces.map(p => {
+            const isInf = p.verdict === 'Infected';
+            const pieceColor = isInf ? 'var(--danger)' : 'var(--ok)';
+            const pieceIcon = isInf ? '✕ Threat' : '✔ Clean';
+            const sizeStr = p.sizeBytes > 0 ? ` (${(p.sizeBytes / 1024).toFixed(1)} KB)` : '';
+            return `
+                <div style="background: var(--surface-low); border: 1px solid var(--border); border-left: 4px solid ${pieceColor}; border-radius: 6px; padding: 12px 16px; margin-bottom: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: 700; font-size: 0.88rem; color: var(--text);">
+                                ${window.escapeHtml(p.name)}${sizeStr}
+                            </div>
+                            <div style="font-size: 0.74rem; color: var(--muted); margin-top: 3px;">
+                                Component: <b>${window.escapeHtml(p.pieceType)}</b> • Scanned by: <b style="color: var(--accent);">${window.escapeHtml(p.engine)}</b>
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <span style="font-weight: 700; font-size: 0.82rem; color: ${pieceColor};">
+                                ${pieceIcon}
+                            </span>
+                            ${p.threatName ? `<div style="font-size: 0.72rem; color: var(--danger); font-family: monospace; margin-top: 2px;">${window.escapeHtml(p.threatName)}</div>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } else {
+        piecesHtml = '<div style="color: var(--muted); padding: 12px;">No individual disassembled pieces evaluated.</div>';
+    }
+
+    body.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="background: ${statusBg}; border: 1px solid ${statusBorder}; border-radius: 8px; padding: 16px 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-weight: 800; font-size: 1.05rem; color: ${statusColor};">${statusIcon}</div>
+                    <div style="display: flex; gap: 8px;">
+                        <span class="badge" style="background: rgba(0, 120, 212, 0.15); color: var(--accent); border: 1px solid var(--accent); font-size: 0.72rem;">
+                            Microsoft Defender: ${rep.defenderAvailable ? 'Active' : 'Offline'}
+                        </span>
+                        <span class="badge" style="background: rgba(255, 255, 255, 0.05); color: var(--muted); border: 1px solid var(--border); font-size: 0.72rem;">
+                            ClamAV: ${rep.clamAvAvailable ? 'Active' : 'Not Installed'}
+                        </span>
+                    </div>
+                </div>
+                <div style="font-size: 0.82rem; color: var(--text); margin-top: 6px;">
+                    ${window.escapeHtml(rep.summary)}
+                </div>
+            </div>
+
+            <div style="font-size: 0.76rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">
+                Disassembled Email Components Breakdown (${rep.pieces ? rep.pieces.length : 0} items)
+            </div>
+
+            <div style="max-height: 320px; overflow-y: auto;">
+                ${piecesHtml}
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 1px solid var(--border); margin-top: 4px;">
+                <div style="font-size: 0.75rem; color: var(--muted);">
+                    Subject: <b style="color: var(--text);">${window.escapeHtml(item.subject || '(No Subject)')}</b>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="btn-ui" onclick="window.cloudScanIncident('${item.entryId || item.id}')" style="font-size: 0.78rem; padding: 6px 14px;">
+                        Check VirusTotal Cloud
+                    </button>
+                    ${isMalicious ? `
+                        <button type="button" class="btn-ui btn-quarantine" onclick="window.quarantineIncident('${item.entryId || item.id}', '${item.fingerprint || ''}', '${item.storeId || ''}'); window.closeVirusTotalModal();" style="font-size: 0.78rem; padding: 6px 14px; background: var(--warn); color: #000; font-weight: 700;">
+                            Quarantine Email
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+};
+
+if (window.securityApi && window.securityApi.onAvScanProgress) {
+    window.securityApi.onAvScanProgress(ev => {
+        if (!ev) return;
+        const stepEl = document.getElementById('av-live-step');
+        const msgEl = document.getElementById('av-live-msg');
+        const barEl = document.getElementById('av-live-bar');
+        if (stepEl && ev.engine) stepEl.textContent = `${ev.engine} Inspecting...`;
+        if (msgEl && ev.message) msgEl.textContent = ev.message;
+        if (barEl && ev.totalSteps > 0) {
+            const pct = Math.min(100, Math.round((ev.step / ev.totalSteps) * 100));
+            barEl.style.width = `${pct}%`;
+        }
+    });
+}
+
 window.cloudScanIncident = async (entryId) => {
     const btn = document.getElementById('btn-vt-scan');
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Auditing...`;
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Scanning...`;
     }
     try {
         const res = await window.securityApi.scanForViruses(entryId);
@@ -1139,10 +1455,11 @@ window.deleteIncident = (id) => {
                 if (window.AppState.counts.total > 0) window.AppState.counts.total--;
             }
 
-            // Clear detail panel if this incident was selected
-            if (window.AppState.selectedId === id || window.selectedIncidentId === id) {
+            // Clear detail panel or forensics tab if this incident was selected
+            if (window.AppState.selectedId === id || window.selectedIncidentId === id || (window.currentForensicsItem && ((window.currentForensicsItem.entryId || window.currentForensicsItem.id) === id))) {
                 window.AppState.selectedId = null;
                 window.selectedIncidentId = null;
+                window.currentForensicsItem = null;
                 const detailPanel = document.getElementById('detail-panel');
                 if (detailPanel) {
                     detailPanel.innerHTML = `
@@ -1152,6 +1469,19 @@ window.deleteIncident = (id) => {
                         </div>
                     `;
                 }
+                const foreContent = document.getElementById('forensics-tab-content');
+                if (foreContent) {
+                    foreContent.innerHTML = `
+                        <div class="empty-state" style="padding: 60px 20px; text-align: center; color: var(--muted);">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                            <h3 style="margin: 16px 0 8px; color: var(--text);">Email Deleted</h3>
+                            <p style="font-size: 0.85rem; max-width: 460px; margin: 0 auto 20px;">The email was permanently removed from Outlook and the database.</p>
+                            <button type="button" class="primary" onclick="switchTab('dashboard')" style="padding: 7px 18px; font-size: 0.82rem;">Go to Dashboard</button>
+                        </div>
+                    `;
+                }
+                const foreToolbar = document.getElementById('forensics-toolbar-actions');
+                if (foreToolbar) foreToolbar.innerHTML = '';
             }
 
             // Re-render current list & counters

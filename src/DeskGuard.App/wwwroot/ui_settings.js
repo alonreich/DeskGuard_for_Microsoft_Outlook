@@ -268,6 +268,23 @@ SecurityUI.Settings = (function() {
                         </label>
                     </div>
 
+                    <!-- Deep Local Antivirus Inspection (Scan Every Email) -->
+                    <div class="setting-item-card" style="background: var(--surface-low); padding: 16px 20px; border-radius: 8px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+                        <div style="flex: 1; padding-right: 16px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div style="font-weight: 600; font-size: 0.88rem; color: var(--text);">Scan Every Email with Local Antivirus (No Exceptions)</div>
+                                <span class="badge badge-safe" style="font-size: 0.65rem;">Defender &amp; ClamAV</span>
+                            </div>
+                            <div style="font-size: 0.75rem; color: var(--muted); margin-top: 3px; line-height: 1.4;">
+                                Disassembles emails into discrete components; attachments are isolated and scanned individually via Microsoft Defender and ClamAV. Newly arriving and unread emails are scanned on-access with highest priority; historical mail is progressively scanned in the background and tracked so no email is ever scanned twice.
+                            </div>
+                        </div>
+                        <label class="switch" style="flex-shrink: 0;">
+                            <input type="checkbox" id="cfg-deep-local-av-all" ${config.deepLocalAvScanAll ? 'checked' : ''}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
                     <!-- Historical Mailbox Scan Scope -->
                     <div class="setting-item-card" style="background: var(--surface-low); padding: 16px 20px; border-radius: 8px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
                         <div>
@@ -331,7 +348,7 @@ SecurityUI.Settings = (function() {
                         </div>
                     </div>
 
-                    <div style="display: flex; gap: 10px; justify-content: center; margin: 4px 0;">
+                    <div style="display: flex; gap: 10px; justify-content: center; align-items: center; margin: 4px 0; flex-wrap: wrap;">
                         <button type="button" class="btn-ui" onclick="SecurityUI.Settings.applyEnginePreset('balanced')" style="padding: 8px 16px; font-weight: 600; font-size: 0.8rem;">
                             Preset: Balanced (Recommended)
                         </button>
@@ -340,6 +357,10 @@ SecurityUI.Settings = (function() {
                         </button>
                         <button type="button" class="btn-ui" onclick="SecurityUI.Settings.applyEnginePreset('relaxed')" style="padding: 8px 16px; font-weight: 600; font-size: 0.8rem;">
                             Preset: Relaxed (Fewer Alerts)
+                        </button>
+                        <button type="button" class="btn-ui" onclick="SecurityUI.Settings.restoreFactoryDefaults()" style="padding: 8px 16px; font-weight: 700; font-size: 0.8rem; background: rgba(241, 112, 123, 0.12); border: 1px solid var(--danger); color: var(--danger); display: inline-flex; align-items: center; gap: 5px;" title="Reset all engine weights and thresholds to factory defaults">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                            Reset to Defaults
                         </button>
                     </div>
 
@@ -541,7 +562,7 @@ SecurityUI.Settings = (function() {
         if (unsavedInd) unsavedInd.style.display = 'none';
 
         // Bind input dirty watchers
-        ['cfg-theme', 'cfg-startup', 'cfg-enabled', 'cfg-onaccess', 'cfg-scan-scope', 'cfg-speed', 'cfg-spam-dest', 'cfg-label-outlook', 'cfg-vtkey', 'cfg-intel-level'].forEach(id => {
+        ['cfg-theme', 'cfg-startup', 'cfg-enabled', 'cfg-onaccess', 'cfg-deep-local-av-all', 'cfg-scan-scope', 'cfg-speed', 'cfg-spam-dest', 'cfg-label-outlook', 'cfg-vtkey', 'cfg-intel-level'].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('input', markDirty);
@@ -563,6 +584,7 @@ SecurityUI.Settings = (function() {
                 const startupEnabled = document.getElementById('cfg-startup').checked;
                 const isEnabled = document.getElementById('cfg-enabled').checked;
                 const onAccessEnabled = document.getElementById('cfg-onaccess').checked;
+                const deepLocalAvScanAll = document.getElementById('cfg-deep-local-av-all') ? document.getElementById('cfg-deep-local-av-all').checked : false;
                 const scanScope = document.getElementById('cfg-scan-scope').value;
                 const deepHistoryScan = (scanScope === 'all');
                 const historyScanEnabled = (scanScope !== 'unread');
@@ -581,6 +603,7 @@ SecurityUI.Settings = (function() {
                 if (api.setScanModes) {
                     await api.setScanModes({
                         onAccessEnabled,
+                        deepLocalAvScanAll,
                         onDemandLimit: 0,
                         deepHistoryScanEnabled: deepHistoryScan,
                         historyScanScope: scanScope,
@@ -707,10 +730,33 @@ SecurityUI.Settings = (function() {
     }
 
     function applyEnginePreset(preset) {
+        if (!currentConfig) return;
+        currentConfig.weights = currentConfig.weights || {};
+        currentConfig.thresholds = currentConfig.thresholds || {};
+
+        if (preset === 'strict') {
+            currentConfig.weights = { spf: 12, dmarc: 12, dkim: 5, alignment: 5, rdns: 4, rbl: 12, body: 5, heuristics: 8, spamflag: 4, mime: 8, msscl: 10, linkmismatch: 8, displayspoof: 6, lookalike: 4, replyto: 3, firstcontact: 2 };
+            currentConfig.thresholds.spamThresholdPercent = 55;
+            currentConfig.thresholds.maliciousThresholdPercent = 35;
+            currentConfig.thresholds.suspiciousThresholdPercent = 70;
+        } else if (preset === 'relaxed') {
+            currentConfig.weights = { spf: 8, dmarc: 8, dkim: 5, alignment: 5, rdns: 3, rbl: 8, body: 5, heuristics: 5, spamflag: 4, mime: 5, msscl: 10, linkmismatch: 8, displayspoof: 7, lookalike: 5, replyto: 3, firstcontact: 2 };
+            currentConfig.thresholds.spamThresholdPercent = 25;
+            currentConfig.thresholds.maliciousThresholdPercent = 10;
+            currentConfig.thresholds.suspiciousThresholdPercent = 40;
+        } else {
+            // balanced (default 100 pt rubric)
+            currentConfig.weights = { spf: 10, dmarc: 10, dkim: 5, alignment: 5, rdns: 4, rbl: 10, body: 5, heuristics: 6, spamflag: 4, mime: 6, msscl: 10, linkmismatch: 8, displayspoof: 7, lookalike: 5, replyto: 3, firstcontact: 2 };
+            currentConfig.thresholds.spamThresholdPercent = 40;
+            currentConfig.thresholds.maliciousThresholdPercent = 20;
+            currentConfig.thresholds.suspiciousThresholdPercent = 55;
+        }
+
         if (typeof window.showNotification === 'function') {
-            window.showNotification(`Applied engine preset: ${preset.toUpperCase()}`);
+            window.showNotification(`Applied engine preset: ${preset.toUpperCase()} (Weights & Thresholds updated)`);
         }
         markDirty();
+        renderSettings();
     }
 
     function restoreFactoryDefaults() {

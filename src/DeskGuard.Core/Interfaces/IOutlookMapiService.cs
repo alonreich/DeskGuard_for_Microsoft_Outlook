@@ -54,6 +54,7 @@ public interface IOutlookMapiService : IDisposable
 
     Task RunSweepAsync(DateTime sinceUtc, CancellationToken cancellationToken);
     Task RunCrawlerAsync(CancellationToken cancellationToken);
+    Task RunDeepAvBackgroundScanAsync(CancellationToken cancellationToken);
 
     Task<DuplicateScanResult> ScanDuplicatesAsync(CancellationToken cancellationToken);
     Task<DuplicateScanResult> ScanDuplicatesAsync(bool includeJunk, CancellationToken cancellationToken = default);

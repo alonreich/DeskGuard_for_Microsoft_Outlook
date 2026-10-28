@@ -153,6 +153,8 @@
         getSavedDuplicates: () => invoke('get-saved-duplicates'),
         onDuplicateUpdate: callback => on('duplicate-update', callback),
         scanForViruses: id => invoke('scan-virus', id),
+        scanAvLocal: id => invoke('scan-av-local', { id }),
+        onAvScanProgress: callback => on('av-scan-progress', callback),
         searchVault: params => invoke('search-vault', params),
         getSenderSuggestions: prefix => invoke('get-sender-suggestions', prefix),
         openEmail: data => invoke('open-email', data),

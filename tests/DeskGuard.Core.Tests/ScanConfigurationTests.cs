@@ -83,5 +83,8 @@ public sealed class ScanConfigurationTests
         Assert.Equal("dark", cfg.Theme);
         Assert.Equal("past7days", cfg.HistoryScanScope);
         Assert.Equal(10, cfg.ScanningSpeed);
+        Assert.NotEmpty(cfg.Weights);
+        Assert.Equal(10, cfg.Weights["spf"]);
+        Assert.Equal(10, cfg.Weights["dmarc"]);
     }
 }

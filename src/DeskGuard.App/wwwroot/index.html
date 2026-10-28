@@ -73,43 +73,44 @@
         <div class="main-content">
             <div id="tab-dashboard" class="tab-pane active">
                 <div class="dashboard-layout">
-                    <div class="stats-grid">
-                        <div class="stat-card" onclick="switchCategory('all')" id="card-all" role="button" tabindex="0" title="Filter by All Scanned">
-                            <div class="stat-label">All Scanned</div>
-                            <div id="stat-all" class="stat-value" style="color: var(--accent);">0</div>
+                    <div class="top-dashboard-bar" style="display: flex; align-items: center; gap: 12px; padding: 6px 16px; background: var(--bg); border-bottom: 1px solid var(--border); flex-wrap: nowrap; overflow-x: auto; flex-shrink: 0;">
+                        <div class="stats-grid" style="display: flex; gap: 6px; align-items: center; padding: 0; flex-shrink: 0;">
+                            <div class="stat-card" onclick="switchCategory('all')" id="card-all" role="button" tabindex="0" title="Filter by All Scanned">
+                                <div class="stat-label">All Scanned</div>
+                                <div id="stat-all" class="stat-value" style="color: var(--accent);">0</div>
+                            </div>
+                            <div class="stat-card active" onclick="switchCategory('malicious')" id="card-malicious" role="button" tabindex="0" title="Filter by Malicious">
+                                <div class="stat-label">Malicious</div>
+                                <div id="stat-malicious" class="stat-value" style="color: var(--danger);">0</div>
+                            </div>
+                            <div class="stat-card" onclick="switchCategory('suspicious')" id="card-suspicious" role="button" tabindex="0" title="Filter by Suspicious">
+                                <div class="stat-label">Suspicious</div>
+                                <div id="stat-suspicious" class="stat-value" style="color: var(--warn);">0</div>
+                            </div>
+                            <div class="stat-card" onclick="switchCategory('spam')" id="card-spam" role="button" tabindex="0" title="Filter by Spam">
+                                <div class="stat-label">Spam</div>
+                                <div id="stat-spam" class="stat-value" style="color: var(--warn);">0</div>
+                            </div>
+                            <div class="stat-card" onclick="switchCategory('safe')" id="card-safe" role="button" tabindex="0" title="Filter by Clean">
+                                <div class="stat-label">Clean</div>
+                                <div id="stat-safe" class="stat-value" style="color: var(--ok);">0</div>
+                            </div>
                         </div>
-                        <div class="stat-card active" onclick="switchCategory('malicious')" id="card-malicious" role="button" tabindex="0" title="Filter by Malicious">
-                            <div class="stat-label">Malicious</div>
-                            <div id="stat-malicious" class="stat-value" style="color: var(--danger);">0</div>
-                        </div>
-                        <div class="stat-card" onclick="switchCategory('suspicious')" id="card-suspicious" role="button" tabindex="0" title="Filter by Suspicious">
-                            <div class="stat-label">Suspicious</div>
-                            <div id="stat-suspicious" class="stat-value" style="color: var(--warn);">0</div>
-                        </div>
-                        <div class="stat-card" onclick="switchCategory('spam')" id="card-spam" role="button" tabindex="0" title="Filter by Spam">
-                            <div class="stat-label">Spam</div>
-                            <div id="stat-spam" class="stat-value" style="color: var(--warn);">0</div>
-                        </div>
-                        <div class="stat-card" onclick="switchCategory('safe')" id="card-safe" role="button" tabindex="0" title="Filter by Clean">
-                            <div class="stat-label">Clean</div>
-                            <div id="stat-safe" class="stat-value" style="color: var(--ok);">0</div>
-                        </div>
-                    </div>
 
-                    <div class="master-list-full">
-                        <div class="vault-search-toolbar" style="display: flex; gap: 10px; align-items: center; padding: 8px 16px; background: var(--surface-low); border-bottom: 1px solid var(--border); flex-wrap: wrap;">
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                <label for="vault-search-scope" style="font-size: 0.7rem; text-transform: uppercase; color: var(--muted); font-weight: 700; margin: 0;">Scope:</label>
-                                <select id="vault-search-scope" style="font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; background: var(--surface-mid); color: var(--text); border: 1px solid var(--border);">
+                        <!-- Scope, In, From, Search on the same line, immediately right of Clean -->
+                        <div class="vault-search-toolbar" style="display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0;">
+                            <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                                <label for="vault-search-scope" style="font-size: 0.68rem; text-transform: uppercase; color: var(--muted); font-weight: 700; margin: 0;">Scope:</label>
+                                <select id="vault-search-scope" style="font-size: 0.72rem; padding: 3px 6px; border-radius: 4px; background: var(--surface-mid); color: var(--text); border: 1px solid var(--border);">
                                     <option value="all">All Fields</option>
                                     <option value="attachments">Attachments Only</option>
                                     <option value="body">Body Only</option>
                                     <option value="subject">Subject Only</option>
                                 </select>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                <label for="vault-search-category" style="font-size: 0.7rem; text-transform: uppercase; color: var(--muted); font-weight: 700; margin: 0;">In:</label>
-                                <select id="vault-search-category" title="Search every indexed email, or only one verdict" style="font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; background: var(--surface-mid); color: var(--text); border: 1px solid var(--border);">
+                            <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                                <label for="vault-search-category" style="font-size: 0.68rem; text-transform: uppercase; color: var(--muted); font-weight: 700; margin: 0;">In:</label>
+                                <select id="vault-search-category" title="Search every indexed email, or only one verdict" style="font-size: 0.72rem; padding: 3px 6px; border-radius: 4px; background: var(--surface-mid); color: var(--text); border: 1px solid var(--border);">
                                     <option value="all">All Mail</option>
                                     <option value="malicious">Malicious</option>
                                     <option value="spam">Spam</option>
@@ -117,21 +118,35 @@
                                     <option value="safe">Safe</option>
                                 </select>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 6px; position: relative;">
-                                <label for="vault-from-input" style="font-size: 0.7rem; text-transform: uppercase; color: var(--muted); font-weight: 700; margin: 0;">From:</label>
-                                <input type="text" id="vault-from-input" aria-label="Filter by sender address" list="from-suggestions" placeholder="Type to filter..." style="font-size: 0.75rem; padding: 4px 8px; width: 140px; border-radius: 4px; background: var(--surface-mid); color: var(--text); border: 1px solid var(--border);" autocomplete="off" />
+                            <div style="display: flex; align-items: center; gap: 4px; position: relative; flex-shrink: 0;">
+                                <label for="vault-from-input" style="font-size: 0.68rem; text-transform: uppercase; color: var(--muted); font-weight: 700; margin: 0;">From:</label>
+                                <input type="text" id="vault-from-input" aria-label="Filter by sender address" list="from-suggestions" placeholder="Type to filter..." style="font-size: 0.72rem; padding: 3px 6px; width: 120px; border-radius: 4px; background: var(--surface-mid); color: var(--text); border: 1px solid var(--border);" autocomplete="off" />
                                 <datalist id="from-suggestions"></datalist>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 180px;">
-                                <input type="text" id="vault-search-input" aria-label="Search all mail keywords" placeholder="Search mail: keywords, inv*ce, *voice, j?hn, john@company.com" title="Words are matched anywhere. * = any characters, ? = one character. Several words = all must match." style="font-size: 0.75rem; padding: 4px 8px; width: 100%; border-radius: 4px; background: var(--surface-mid); color: var(--text); border: 1px solid var(--border);" autocomplete="off" />
-                                <span id="index-status" style="font-size: 0.7rem; color: var(--muted); white-space: nowrap;"></span>
-                                <button id="vault-search-clear" onclick="window.clearVaultSearch()" style="display: none; font-size: 0.75rem; padding: 4px 8px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; cursor: pointer;" title="Clear Search" aria-label="Clear Search">&times;</button>
+                            <div style="display: flex; align-items: center; gap: 4px; flex: 1; min-width: 140px;">
+                                <input type="text" id="vault-search-input" aria-label="Search all mail keywords" placeholder="Search keywords..." title="Words are matched anywhere. * = any characters, ? = one character." style="font-size: 0.72rem; padding: 3px 6px; width: 100%; border-radius: 4px; background: var(--surface-mid); color: var(--text); border: 1px solid var(--border);" autocomplete="off" />
+                                <span id="index-status" style="font-size: 0.68rem; color: var(--muted); white-space: nowrap;"></span>
+                                <button id="vault-search-clear" onclick="window.clearVaultSearch()" style="display: none; font-size: 0.75rem; padding: 2px 6px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; cursor: pointer;" title="Clear Search" aria-label="Clear Search">&times;</button>
                             </div>
-                            <button id="full-scan-btn" onclick="requestFullScan()" class="primary" style="font-size: 0.75rem; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4l3 3"></path></svg>
-                                Full Mailbox Audit
-                            </button>
                         </div>
+                    </div>
+
+                    <!-- Quick Filter Chips & Keyboard Hint -->
+                    <div class="quick-filter-chips-bar">
+                        <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--muted); font-weight: 700; white-space: nowrap; margin-right: 4px;">Quick Filters:</span>
+                        <button type="button" class="filter-chip" id="chip-attach" onclick="window.toggleFilterChip('has:attach')" title="Filter emails with attachments">📎 Attachments</button>
+                        <button type="button" class="filter-chip" id="chip-unread" onclick="window.toggleFilterChip('is:unread')" title="Filter unread emails only">⚡ Unread</button>
+                        <button type="button" class="filter-chip" id="chip-malicious" onclick="window.toggleFilterChip('is:malicious')" title="Filter malicious security incidents">⚠️ Malicious</button>
+                        <button type="button" class="filter-chip" id="chip-spam" onclick="window.toggleFilterChip('is:spam')" title="Filter spam emails">🚫 Spam</button>
+                        <button type="button" class="filter-chip" id="chip-highrisk" onclick="window.toggleFilterChip('score:<50')" title="High risk emails with score &lt; 50">🛡️ Score &lt; 50</button>
+                        <button type="button" class="filter-chip" id="chip-safe" onclick="window.toggleFilterChip('is:clean')" title="Filter safe/clean emails">✅ Clean</button>
+                        <div style="flex: 1;"></div>
+                        <button type="button" class="filter-chip-kbd-hint" onclick="window.openKeyboardShortcutsHelp()" title="Keyboard Shortcuts Cheat Sheet (?)">
+                            <kbd>?</kbd> Shortcuts
+                        </button>
+                    </div>
+
+                    <div class="master-list-full" style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
                         <div id="list-header" class="list-header incident-grid">
                             <div class="col-header" onclick="window.sortList('date')">Date <span id="sort-date">▼</span><div class="col-resizer" data-col="date"></div></div>
                             <div class="col-header" onclick="window.sortList('time')">Time <span id="sort-time"></span><div class="col-resizer" data-col="time"></div></div>
@@ -140,20 +155,27 @@
                             <div class="col-header" onclick="window.sortList('subject')">Subject <span id="sort-subject"></span><div class="col-resizer" data-col="subject"></div></div>
                             <div class="col-header" onclick="window.sortList('verdict')">Verdict <span id="sort-verdict"></span><div class="col-resizer" data-col="verdict"></div></div>
                             <div class="col-header" onclick="window.sortList('score')">Score <span id="sort-score"></span><div class="col-resizer" data-col="score"></div></div>
-                            <div class="col-header actions-col-header" style="text-align: right; padding-right: 14px;">Actions</div>
+                            <div class="col-header actions-col-header" style="text-align: right; padding-right: 14px;">Actions<div class="col-resizer" data-col="actions"></div></div>
                         </div>
                         <div id="security-list" class="list-container" tabindex="0">
                         </div>
                     </div>
 
-                    <div class="activity-feed">
-                        <div class="activity-header">
-                            <div>Live Security Engine Feed</div>
-                            <div id="scan-progress-mini" style="display:none; gap: 10px; align-items: center;">
-                                <div style="width: 100px; height: 4px; background: #1a1a1a; border-radius: 2px;">
-                                    <div id="scan-progress-bar" style="width: 0%; height: 100%; background: var(--accent);"></div>
+                    <!-- Resizable Grabbable Horizontal Splitter -->
+                    <div id="feed-splitter" class="feed-horizontal-splitter" title="Drag up or down to adjust Live Feed height">
+                        <div class="splitter-handle-bar"></div>
+                    </div>
+
+                    <div class="activity-feed" id="activity-feed-container">
+                        <div class="activity-header" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 16px;">
+                            <div style="font-weight: 700; font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap;">
+                                Live Security Engine Feed
+                            </div>
+                            <div id="scan-progress-mini" style="display: flex; flex: 1; max-width: 600px; margin: 0 20px; gap: 10px; align-items: center;">
+                                <div style="flex: 1; height: 9px; background: rgba(0,0,0,0.4); border-radius: 5px; overflow: hidden; border: 1px solid var(--border);">
+                                    <div id="scan-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent), #00d2ff); transition: width 0.3s ease;"></div>
                                 </div>
-                                <span id="scan-progress-text">0%</span>
+                                <span id="scan-progress-text" style="font-size: 0.76rem; font-family: monospace; font-weight: 700; color: var(--accent); min-width: 45px;">0%</span>
                             </div>
                         </div>
                         <div id="activity-stream" class="activity-stream">
@@ -271,20 +293,16 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--accent)"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/></svg>
                     <h2 id="settings-title" style="margin: 0; font-size: 1.1rem; font-weight: 600; color: var(--text);">System Configuration &amp; Protection Settings</h2>
                 </div>
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <button id="save-settings-btn-top" class="primary" style="padding: 7px 16px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                        Save Changes
-                    </button>
-                    <button type="button" class="modal-close-btn" onclick="closeSettings()" title="Close Settings (Esc)" aria-label="Close">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                <div>
+                    <button type="button" class="modal-close-btn" onclick="closeSettings()" title="Close Settings without saving (Esc)" aria-label="Close">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </button>
                 </div>
             </div>
             <div class="modal-body" id="settings-body" style="flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 22px 24px;">
             </div>
             <div class="modal-footer" style="flex-shrink: 0; background: var(--surface-high); border-top: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;">
-                <button type="button" onclick="closeSettings()" style="background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 8px 16px; border-radius: 6px; cursor: pointer;">Cancel / Close</button>
+                <button type="button" onclick="closeSettings()" style="background: rgba(241, 112, 123, 0.08); border: 1px solid var(--danger); color: var(--danger); padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.82rem; transition: var(--transition);" title="Discard changes and close">Discard</button>
                 <div style="display: flex; align-items: center; gap: 14px;">
                     <span id="settings-unsaved-indicator" style="display: none; font-size: 0.75rem; color: var(--warn); font-weight: 600;">● Unsaved Changes</span>
                     <button id="save-settings-btn" class="primary" style="padding: 9px 24px; font-size: 0.85rem; font-weight: 700; box-shadow: 0 0 15px rgba(0, 120, 212, 0.4);">
@@ -385,7 +403,10 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button id="reset-sensitivity-defaults" style="margin-right: auto;">Reset Factory Defaults</button>
+                <button id="reset-sensitivity-defaults" style="margin-right: auto; background: rgba(241, 112, 123, 0.12); border: 1px solid var(--danger); color: var(--danger); font-weight: 700; display: inline-flex; align-items: center; gap: 5px;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                    Reset Factory Defaults
+                </button>
                 <button id="cancel-sensitivity">Cancel</button>
                 <button id="save-sensitivity" class="primary">Apply Weights & Threshold</button>
             </div>
@@ -456,6 +477,67 @@
         </div>
     </div>
 
+    <!-- Keyboard Shortcuts Cheat Sheet Modal -->
+    <div id="keyboard-shortcuts-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kbd-shortcuts-title" onclick="handleOverlayClick(event, 'keyboard-shortcuts-modal')">
+        <div class="modal" style="width: 520px; max-height: 85vh; display: flex; flex-direction: column;">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M6 12h.001M10 12h.001M14 12h.001M18 12h.001M8 16h8"></path></svg>
+                    <h2 id="kbd-shortcuts-title" style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--text);">Keyboard Shortcuts Cheat Sheet</h2>
+                </div>
+                <button type="button" class="modal-close-btn" onclick="closeModal('keyboard-shortcuts-modal')" title="Close (Esc)" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid var(--border); color: var(--muted); text-align: left;">
+                            <th style="padding: 6px 8px; font-weight: 700; width: 130px;">Key</th>
+                            <th style="padding: 6px 8px; font-weight: 700;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <td style="padding: 8px;"><kbd>J</kbd> or <kbd>&darr;</kbd></td>
+                            <td style="padding: 8px; color: var(--text);">Select next email downward in list</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <td style="padding: 8px;"><kbd>K</kbd> or <kbd>&uarr;</kbd></td>
+                            <td style="padding: 8px; color: var(--text);">Select previous email upward in list</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <td style="padding: 8px;"><kbd>Enter</kbd> or <kbd>O</kbd></td>
+                            <td style="padding: 8px; color: var(--text);">Open selected email in Microsoft Outlook focused on top</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <td style="padding: 8px;"><kbd>F</kbd></td>
+                            <td style="padding: 8px; color: var(--text);">Open forensic deep dive &amp; incident analysis report</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <td style="padding: 8px;"><kbd>S</kbd></td>
+                            <td style="padding: 8px; color: var(--text);">Run local AV scan (Microsoft Defender &amp; ClamAV)</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <td style="padding: 8px;"><kbd>Q</kbd></td>
+                            <td style="padding: 8px; color: var(--text);">Quarantine selected email to Junk/Quarantine folder</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <td style="padding: 8px;"><kbd>D</kbd></td>
+                            <td style="padding: 8px; color: var(--text);">Permanently delete selected email</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px;"><kbd>?</kbd></td>
+                            <td style="padding: 8px; color: var(--text);">Toggle this keyboard shortcuts cheat sheet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-footer" style="padding: 12px 20px; display: flex; justify-content: flex-end;">
+                <button type="button" class="btn-ui" onclick="closeModal('keyboard-shortcuts-modal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" aria-live="polite"></div>
     <div id="tooltip" style="display:none; position:fixed; z-index:99999; background: #18191f; border: 1px solid var(--accent); color: #fff; padding: 14px 18px; border-radius: 8px; font-size: 0.78rem; max-width: 360px; line-height: 1.5; white-space: pre-wrap; box-shadow: 0 12px 32px rgba(0,0,0,0.8); pointer-events: none;"></div>
 
     <script src="bridge.js"></script>

@@ -246,6 +246,59 @@ public sealed class VaultRepositoryTests : IDisposable
         Assert.True(_repository.GetStats().Total > 0);
     }
 
+    [Fact]
+    public void SearchEmails_WithInlineOperators_FiltersCorrectly()
+    {
+        EmailRecord e1 = new()
+        {
+            EntryId = "EID_OP_1",
+            Subject = "Monthly Invoicing",
+            Sender = "billing@acme.com",
+            Recipient = "finance@corp.com",
+            Body = "Please review the attached invoice.",
+            Verdict = "Safe",
+            Score = 95.0,
+            Unread = true,
+            AttachmentsJson = "[{\"Name\":\"invoice.pdf\",\"Size\":1024}]"
+        };
+
+        EmailRecord e2 = new()
+        {
+            EntryId = "EID_OP_2",
+            Subject = "Phishing alert wire transfer",
+            Sender = "scammer@badsite.org",
+            Recipient = "finance@corp.com",
+            Body = "Urgent wire needed immediately.",
+            Verdict = "Malicious",
+            Score = 15.0,
+            Unread = false,
+            AttachmentsJson = "[]"
+        };
+
+        _repository.InsertEmail(e1);
+        _repository.InsertEmail(e2);
+
+        // 1. Search with from: operator
+        var resFrom = _repository.SearchEmails(new SearchParameters { Query = "from:billing@acme.com" });
+        Assert.Equal(1, resFrom.Total);
+        Assert.Equal("EID_OP_1", resFrom.Rows[0].EntryId);
+
+        // 2. Search with score:< operator
+        var resScore = _repository.SearchEmails(new SearchParameters { Query = "score:<50" });
+        Assert.Equal(1, resScore.Total);
+        Assert.Equal("EID_OP_2", resScore.Rows[0].EntryId);
+
+        // 3. Search with has:attach and is:unread
+        var resAttach = _repository.SearchEmails(new SearchParameters { Query = "has:attach is:unread" });
+        Assert.Equal(1, resAttach.Total);
+        Assert.Equal("EID_OP_1", resAttach.Rows[0].EntryId);
+
+        // 4. Combined keyword and operator
+        var resCombined = _repository.SearchEmails(new SearchParameters { Query = "is:malicious wire" });
+        Assert.Equal(1, resCombined.Total);
+        Assert.Equal("EID_OP_2", resCombined.Rows[0].EntryId);
+    }
+
     public void Dispose()
     {
         _repository.Dispose();

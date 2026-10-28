@@ -27,7 +27,7 @@ src/DeskGuard.Core/
 |   |-- EmailRecord.cs               # Canonical email entity with score, headers, fingerprint
 |   |-- SecurityVerdict.cs           # Verdict model: Score (0-100), Verdict, Penalties, TotalDeduction
 |   |-- SecurityPenalty.cs           # Individual scoring deduction record (rule, key, points, evidence)
-|   |-- ScanConfiguration.cs         # Engine weights, toggles, thresholds, API keys, whitelists
+|   |-- ScanConfiguration.cs         # DPAPI-encrypted keys, engine weights, thresholds, whitelists, themes
 |   |-- DuplicateGroup.cs            # Grouping of duplicate emails sharing identity hash
 |   |-- DuplicateItem.cs             # Single instance within a duplicate cluster
 |   |-- SearchParameters.cs          # Query filter criteria for vault lookups
@@ -84,6 +84,12 @@ DeskGuard calculates a **safety score from 100.0% down to 0.0%**:
 | **20.1% – 40.0%** | **Spam** | Warning (Orange) | Moved to **Junk Email** folder (or Quarantine). |
 | **40.1% – 55.0%** | **Suspicious**| Attention (Yellow) | Retained in **Inbox**; tagged with Outlook color category `DeskGuard: Suspicious`. |
 | **55.1% – 100.0%**| **Safe** | Clean (Green) | Pristine; untouched in original folder. |
+
+### 3.3 Configuration Security & Sensitive Data Storage (`ScanConfiguration.cs`)
+- **DPAPI Encryption**: Sensitive keys (such as VirusTotal API keys) are encrypted at rest using Windows Data Protection API (`CryptProtectData` / `CryptUnprotectData`).
+- **Sanitized Export**: `ScanConfiguration.CreateExportPackage()` redacts all secrets and host-specific window coordinates prior to exporting backup files.
+- **Safe Import Merge**: `ScanConfiguration.ImportSettings()` safely merges imported engine weights and thresholds without overwriting master power state or machine-specific coordinates.
+- **Scan Scope Control**: Supports `HistoryScanScope` (`"unread"` vs `"all"`) to target only actionable messages during background sweeps.
 
 ---
 

@@ -142,6 +142,10 @@ internal sealed partial class DashboardWindow : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetForegroundWindow(IntPtr hWnd);
 
+    [LibraryImport("user32.dll", EntryPoint = "AllowSetForegroundWindow")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AllowSetForegroundWindow(int dwProcessId);
+
     [LibraryImport("user32.dll", EntryPoint = "IsZoomed")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool IsZoomed(IntPtr hWnd);
@@ -747,9 +751,14 @@ internal sealed partial class DashboardWindow : IDisposable
                 if (payload.ValueKind == JsonValueKind.Object)
                 {
                     bool prevDeep = _config.DeepHistoryScanEnabled;
+                    bool prevDeepAv = _config.DeepLocalAvScanAll;
                     if (payload.TryGetProperty("onAccessEnabled", out var oa))
                     {
                         _config.OnAccessEnabled = oa.GetBoolean();
+                    }
+                    if (payload.TryGetProperty("deepLocalAvScanAll", out var dlav))
+                    {
+                        _config.DeepLocalAvScanAll = dlav.GetBoolean();
                     }
                     if (payload.TryGetProperty("deepHistoryScanEnabled", out var dh))
                     {
@@ -786,6 +795,22 @@ internal sealed partial class DashboardWindow : IDisposable
                             catch (Exception ex)
                             {
                                 DeskGuard.Core.Logging.AppLogger.Error("[Scan Modes] Historical sweep error", ex);
+                            }
+                        });
+                    }
+
+                    if (!prevDeepAv && _config.DeepLocalAvScanAll && _config.Enabled)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                DeskGuard.Core.Logging.AppLogger.Info("[Scan Modes] Deep local AV inspection enabled for all emails: launching progressive background AV sweep...");
+                                await _mapiService.RunDeepAvBackgroundScanAsync(_cts.Token);
+                            }
+                            catch (Exception ex)
+                            {
+                                DeskGuard.Core.Logging.AppLogger.Error("[Scan Modes] Progressive AV sweep error", ex);
                             }
                         });
                     }
@@ -864,6 +889,12 @@ internal sealed partial class DashboardWindow : IDisposable
             case "quarantine-email":
                 string qEntryId = payload.TryGetProperty("entryId", out var qe) ? qe.GetString() ?? string.Empty : string.Empty;
                 string qStoreId = payload.TryGetProperty("storeId", out var qs) ? qs.GetString() ?? string.Empty : string.Empty;
+                string qFp = payload.TryGetProperty("fingerprint", out var qf) ? qf.GetString() ?? string.Empty : string.Empty;
+                if (string.IsNullOrEmpty(qStoreId) && !string.IsNullOrEmpty(qEntryId))
+                {
+                    var rec = _vault.GetEmailById(qEntryId);
+                    if (rec != null && !string.IsNullOrEmpty(rec.StoreId)) qStoreId = rec.StoreId;
+                }
                 bool quarantined = await _mapiService.QuarantineEmailAsync(qEntryId, qStoreId, 23, _cts.Token);
                 return new { ok = quarantined, success = quarantined };
 
@@ -886,6 +917,7 @@ internal sealed partial class DashboardWindow : IDisposable
                 return new { ok = delResult.Success, success = delResult.Success, count = delResult.Count };
 
             case "open-email":
+                try { AllowSetForegroundWindow(-1); } catch { }
                 string oEntryId = payload.TryGetProperty("entryId", out var oe) ? oe.GetString() ?? string.Empty : string.Empty;
                 string oStoreId = payload.TryGetProperty("storeId", out var os) ? os.GetString() ?? string.Empty : string.Empty;
                 string oFingerprint = payload.TryGetProperty("fingerprint", out var ofp) ? ofp.GetString() ?? string.Empty : string.Empty;
@@ -930,6 +962,7 @@ internal sealed partial class DashboardWindow : IDisposable
 
             case "search-vault":
                 string q = payload.TryGetProperty("query", out var qp) ? qp.GetString() ?? string.Empty : string.Empty;
+                string searchScope = payload.TryGetProperty("scope", out var scp) ? scp.GetString() ?? "all" : "all";
                 int limit = payload.TryGetProperty("limit", out var lp) ? lp.GetInt32() : 50;
                 int offset = payload.TryGetProperty("offset", out var op) ? op.GetInt32() : 0;
                 string? folderFilter = payload.TryGetProperty("folder", out var fp) ? fp.GetString() : null;
@@ -944,15 +977,11 @@ internal sealed partial class DashboardWindow : IDisposable
 
                 return await Task.Run(() =>
                 {
-                    string effectiveQuery = q;
-                    if (!string.IsNullOrWhiteSpace(senderFilter))
-                    {
-                        effectiveQuery = string.IsNullOrWhiteSpace(effectiveQuery) ? senderFilter : $"{effectiveQuery} {senderFilter}";
-                    }
-
                     var searchRes = _vault.SearchEmails(new SearchParameters
                     {
-                        Query = effectiveQuery,
+                        Query = q,
+                        Scope = searchScope,
+                        FromFilter = senderFilter,
                         Category = catFilter,
                         Verdict = verFilter,
                         DateFrom = dFrom,
@@ -1069,6 +1098,19 @@ internal sealed partial class DashboardWindow : IDisposable
                     dupItems = JsonSerializer.Deserialize(itemsProp.GetRawText(), DeskGuardJsonContext.Default.ListDuplicateItem) ?? [];
                 }
                 var cleanRes = await _mapiService.CleanDuplicatesAsync(dupItems, dupMode, _cts.Token);
+                if (cleanRes.SuccessCount > 0)
+                {
+                    await Task.Run(() =>
+                    {
+                        var savedDups = _vault.GetSavedDuplicates();
+                        if (savedDups.Items != null && savedDups.Items.Count > 0)
+                        {
+                            var cleanedSet = new HashSet<string>(dupItems.Select(d => d.EntryId), StringComparer.OrdinalIgnoreCase);
+                            var remaining = savedDups.Items.Where(d => !cleanedSet.Contains(d.EntryId)).ToList();
+                            _vault.SaveDuplicates(remaining, savedDups.Status);
+                        }
+                    });
+                }
                 return new { ok = true, count = cleanRes.SuccessCount, successCount = cleanRes.SuccessCount, skippedCount = cleanRes.SkippedCount };
 
             case "get-events":
@@ -1115,6 +1157,47 @@ internal sealed partial class DashboardWindow : IDisposable
 
             case "score-what-if":
                 return new { score = 85.0, verdict = "Clean" };
+
+            case "scan-av-local":
+                string avLocalId = payload.ValueKind == JsonValueKind.String ? (payload.GetString() ?? string.Empty) : string.Empty;
+                if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("id", out var avIdProp))
+                {
+                    avLocalId = avIdProp.GetString() ?? string.Empty;
+                }
+
+                var avEmailRec = await Task.Run(() => _vault.GetEmailById(avLocalId));
+                if (avEmailRec == null)
+                {
+                    return new { success = false, error = "Email record not found in vault." };
+                }
+
+                List<AttachmentInfo> avAttList = [];
+                if (!string.IsNullOrEmpty(avEmailRec.AttachmentsJson))
+                {
+                    try
+                    {
+                        avAttList = JsonSerializer.Deserialize(avEmailRec.AttachmentsJson, DeskGuardJsonContext.Default.ListAttachmentInfo) ?? [];
+                    }
+                    catch { }
+                }
+
+                var avService = new DeskGuard.Core.Services.LocalAntivirusService();
+                avService.ProgressChanged += progressEv =>
+                {
+                    PostEvent("av-scan-progress", new
+                    {
+                        emailId = avLocalId,
+                        status = progressEv.Status,
+                        step = progressEv.Step,
+                        totalSteps = progressEv.TotalSteps,
+                        currentPiece = progressEv.CurrentPiece,
+                        engine = progressEv.Engine,
+                        message = progressEv.Message
+                    });
+                };
+
+                var avReport = await avService.ScanEmailAsync(avEmailRec, avAttList, _cts.Token);
+                return new { success = true, report = avReport };
 
             case "scan-virus":
                 string vId = payload.ValueKind == JsonValueKind.String ? (payload.GetString() ?? string.Empty) : string.Empty;
@@ -1297,13 +1380,22 @@ internal sealed partial class DashboardWindow : IDisposable
             case "restore-defaults":
                 int curWinX = _config.WindowX, curWinY = _config.WindowY, curWinW = _config.WindowWidth, curWinH = _config.WindowHeight;
                 bool curWinMax = _config.WindowMaximized;
+                string curVtKey = _config.VtKey;
                 _config = new ScanConfiguration
                 {
                     WindowX = curWinX,
                     WindowY = curWinY,
                     WindowWidth = curWinW,
                     WindowHeight = curWinH,
-                    WindowMaximized = curWinMax
+                    WindowMaximized = curWinMax,
+                    VtKey = curVtKey,
+                    Weights = new(DeskGuard.Core.Scoring.ScoringEngine.DefaultWeights, StringComparer.OrdinalIgnoreCase),
+                    Thresholds = new()
+                    {
+                        SpamThresholdPercent = DeskGuard.Core.Scoring.ScoringEngine.DefaultThresholds.SpamThresholdPercent,
+                        MaliciousThresholdPercent = DeskGuard.Core.Scoring.ScoringEngine.DefaultThresholds.MaliciousThresholdPercent,
+                        SuspiciousThresholdPercent = DeskGuard.Core.Scoring.ScoringEngine.DefaultThresholds.SuspiciousThresholdPercent
+                    }
                 };
                 _mapiService.UpdateConfiguration(_config);
                 SaveConfig();

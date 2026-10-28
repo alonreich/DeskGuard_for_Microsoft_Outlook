@@ -393,11 +393,14 @@ SecurityUI.Duplicates = (function() {
         const view = document.getElementById('duplicate-view');
         if (view) {
             view.innerHTML = `
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; text-align: center;">
-                    <div style="width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;"></div>
-                    <div class="stat-value" style="color: var(--accent); font-size: 1.2rem; margin-bottom: 8px;">Connecting to Outlook MAPI Session...</div>
-                    <div style="font-size: 0.85rem; color: var(--muted); max-width: 460px; line-height: 1.5;">
-                        Traversing folders and computing cryptographic hashes to cluster identical emails while safeguarding Inbox copies...
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; text-align: center; padding: 24px;">
+                    <div style="width: 44px; height: 44px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;"></div>
+                    <div id="dup-progress-title" class="stat-value" style="color: var(--accent); font-size: 1.25rem; margin-bottom: 8px;">Connecting to Outlook MAPI Session...</div>
+                    <div id="dup-progress-sub" style="font-size: 0.88rem; color: var(--text); font-weight: 600; margin-bottom: 8px;">
+                        Acquiring mailbox session and traversing folder hierarchy...
+                    </div>
+                    <div id="dup-progress-detail" style="font-size: 0.78rem; color: var(--muted); max-width: 480px; line-height: 1.5; font-family: monospace;">
+                        Safeguarding primary Inbox copies • Computing cryptographic DNA hashes
                     </div>
                 </div>
             `;
@@ -463,7 +466,14 @@ SecurityUI.Duplicates = (function() {
                     if (duplicateItems.length === 0) {
                         render({ status: 'Finished', items: [] });
                     } else {
+                        const titleEl = document.getElementById('dup-header-title');
+                        const subEl = document.getElementById('dup-header-subtitle');
+                        const remCount = duplicateItems.length;
+                        const remBytes = duplicateItems.reduce((acc, c) => acc + (c.size || 0), 0);
+                        if (titleEl) titleEl.textContent = `Found ${remCount.toLocaleString()} redundant copies across mailboxes (${formatSize(remBytes)})`;
+                        if (subEl) subEl.textContent = `Protected sole survivor preserved in original folder • ${remCount.toLocaleString()} duplicates ready for removal`;
                         renderClusterCards();
+                        updateMetrics();
                     }
                 } catch (err) {
                     if (typeof window.showNotification === 'function') {
@@ -507,7 +517,14 @@ SecurityUI.Duplicates = (function() {
                     if (duplicateItems.length === 0) {
                         render({ status: 'Finished', items: [] });
                     } else {
+                        const titleEl = document.getElementById('dup-header-title');
+                        const subEl = document.getElementById('dup-header-subtitle');
+                        const remCount = duplicateItems.length;
+                        const remBytes = duplicateItems.reduce((acc, c) => acc + (c.size || 0), 0);
+                        if (titleEl) titleEl.textContent = `Found ${remCount.toLocaleString()} redundant copies across mailboxes (${formatSize(remBytes)})`;
+                        if (subEl) subEl.textContent = `Protected sole survivor preserved in original folder • ${remCount.toLocaleString()} duplicates ready for removal`;
                         renderClusterCards();
+                        updateMetrics();
                     }
                 } catch (err) {
                     if (typeof window.showNotification === 'function') {
@@ -545,6 +562,28 @@ SecurityUI.Duplicates = (function() {
     function onSearch(val) {
         searchQuery = (val || '').trim();
         renderClusterCards();
+    }
+
+    if (api && api.onDuplicateUpdate) {
+        api.onDuplicateUpdate(data => {
+            if (!data) return;
+            if (data.status === 'Progress') {
+                const titleEl = document.getElementById('dup-progress-title');
+                const subEl = document.getElementById('dup-progress-sub');
+                const detailEl = document.getElementById('dup-progress-detail');
+                if (titleEl) titleEl.textContent = `Scanning Mailboxes... (${(data.scanned || 0).toLocaleString()} emails inspected)`;
+                if (subEl) subEl.textContent = `Folder: ${data.currentFolder || 'Root'} • Store: ${data.store || 'Primary'}`;
+                if (detailEl && data.details) detailEl.textContent = data.details;
+            } else if (data.status === 'Scanned') {
+                const titleEl = document.getElementById('dup-progress-title');
+                const subEl = document.getElementById('dup-progress-sub');
+                if (titleEl) titleEl.textContent = "Clustering & Analyzing Duplicates...";
+                if (subEl && data.details) subEl.textContent = data.details;
+            } else if (data.status === 'Finished' || data.status === 'Paused') {
+                isScanning = false;
+                render(data);
+            }
+        });
     }
 
     return {

@@ -97,7 +97,12 @@ public static class VaultMigrationManager
             "ALTER TABLE emails ADD COLUMN hidden INTEGER DEFAULT 0;",
             "ALTER TABLE emails ADD COLUMN attachments TEXT;",
             "ALTER TABLE emails ADD COLUMN folder_kind TEXT;",
-            "ALTER TABLE emails ADD COLUMN size INTEGER DEFAULT 0;"
+            "ALTER TABLE emails ADD COLUMN size INTEGER DEFAULT 0;",
+            "ALTER TABLE emails ADD COLUMN av_scanned INTEGER DEFAULT 0;",
+            "ALTER TABLE emails ADD COLUMN av_verdict TEXT;",
+            "ALTER TABLE emails ADD COLUMN av_threat_name TEXT;",
+            "ALTER TABLE emails ADD COLUMN av_scanned_at TEXT;",
+            "CREATE INDEX IF NOT EXISTS idx_emails_av_scanned ON emails(av_scanned);"
         ];
 
         foreach (string alter in optionalColumns)

@@ -456,6 +456,73 @@ public sealed partial class VaultRepository : IVaultRepository
         }
     }
 
+    public void RecordAvScanResult(string entryId, string verdict, string? threatName)
+    {
+        AssertWritable();
+        EnsureReady();
+        if (string.IsNullOrEmpty(entryId)) return;
+
+        lock (_writeSyncRoot)
+        {
+            try
+            {
+                using SqliteCommand cmd = _connection!.CreateCommand();
+                cmd.CommandText = """
+                    UPDATE emails
+                    SET av_scanned = 1,
+                        av_verdict = $v,
+                        av_threat_name = $t,
+                        av_scanned_at = $ts
+                    WHERE entry_id = $eid OR fingerprint = $eid;
+                """;
+                cmd.Parameters.AddWithValue("$v", verdict ?? "Clean");
+                cmd.Parameters.AddWithValue("$t", (object?)threatName ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$ts", DateTime.UtcNow.ToString("o"));
+                cmd.Parameters.AddWithValue("$eid", entryId);
+                cmd.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[VaultRepository] RecordAvScanResult error: {ex.Message}");
+            }
+        }
+    }
+
+    public List<EmailRecord> GetUnscannedAvEmails(int limit = 50)
+    {
+        EnsureReady();
+        List<EmailRecord> list = [];
+        lock (_readSyncRoot)
+        {
+            try
+            {
+                using SqliteCommand cmd = _readConnection!.CreateCommand();
+                cmd.CommandText = """
+                    SELECT id, entry_id, store_id, fingerprint, subject, sender, recipient, cc,
+                           date, time, timestamp, body, headers, verdict, score, tier,
+                           attachments_json, attachments, unread, user_moved, current_folder,
+                           message_id, hidden, folder_kind, size, penalties_json
+                    FROM emails
+                    WHERE (av_scanned IS NULL OR av_scanned = 0)
+                      AND (hidden IS NULL OR hidden = 0)
+                    ORDER BY unread DESC, created_at DESC
+                    LIMIT $lim;
+                """;
+                cmd.Parameters.AddWithValue("$lim", limit);
+                using SqliteDataReader reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    list.Add(MapEmailRecord(reader, light: false));
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[VaultRepository] GetUnscannedAvEmails error: {ex.Message}");
+            }
+        }
+        return list;
+    }
+
     public List<string> GetAllEntryIds()
     {
         EnsureReady();

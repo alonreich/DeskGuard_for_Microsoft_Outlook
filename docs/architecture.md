@@ -101,7 +101,7 @@ DeskGuard packages directly into a standalone self-contained x64 single-file exe
    - Local vault status updated and confirmation broadcast back to the frontend.
 
 3. **Mailbox Deduplication**:
-   - User or tray triggers duplicate audit.
+   - User or tray triggers duplicate audit across all stores and folders.
    - `OutlookMailboxCrawler` traverses mail folders via STA coordinator, streaming progress events.
-   - Emails clustered by SHA-256 fingerprint; oldest or prioritized copy elected survivor.
-   - Results persisted in SQLite and surfaced in `ui_duplicates.js` with batch removal options.
+   - Emails clustered by composite SHA-256 fingerprint with folder-hierarchy-based survivor election (`Inbox` [Rank 1] > `Sent` [Rank 2] > user folders/archive [Rank 3/4] > `Junk` [Rank 10] > `Conflicts` [Rank 20] > `Deleted Items` [Rank 99]; tie-breaker: oldest `SentUtc`).
+   - Results persisted in SQLite and surfaced in `ui_duplicates.js` with visual cluster cards, direct Outlook navigation, and a locked sole survivor protection banner ensuring surviving copies cannot be accidentally checked or deleted during batch actions.

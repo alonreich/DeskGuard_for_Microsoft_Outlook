@@ -274,8 +274,10 @@ window.showConfirmModal = function(title, msg, onExecute, keyword) {
 async function requestFullScan() {
     window.showConfirm("Full Mailbox Audit", "This will perform a deep forensic scan of ALL items in your mailbox across all folders and archives. Depending on mailbox size, this may take several minutes. Proceed?", async () => {
         const btn = document.getElementById('full-scan-btn');
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Initializing...`;
-        btn.disabled = true;
+        if (btn) {
+            btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Initializing...`;
+            btn.disabled = true;
+        }
         await api.setEnabled(true);
         await api.setHistoryEnabled(true);
         if (api.startFullScan) {
@@ -364,18 +366,22 @@ api.onScanUpdate(data => {
     const progText = document.getElementById('scan-progress-text');
 
     if (data.status === 'SCANNING' || data.status === 'History') {
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Auditing...`;
-        btn.disabled = true;
-        progMini.style.display = 'flex';
-        if (data.total > 0) {
+        if (btn) {
+            btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Auditing...`;
+            btn.disabled = true;
+        }
+        if (progMini) progMini.style.display = 'flex';
+        if (data.total > 0 && progBar && progText) {
             const pct = Math.round((data.count / data.total) * 100);
             progBar.style.width = pct + '%';
             progText.textContent = pct + '%';
         }
     } else if (data.status === 'Finished' && !data.verdict) {
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4l3 3"></path></svg> Full Audit`;
-        btn.disabled = false;
-        progMini.style.display = 'none';
+        if (btn) {
+            btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4l3 3"></path></svg> Full Audit`;
+            btn.disabled = false;
+        }
+        if (progMini) progMini.style.display = 'none';
     }
 
     if (data.status === 'THREAT BLOCKED' || data.status === 'SPAM FILTERED' || data.status === 'Finished' || data.status === 'SCANNING' || data.status === 'INFO' || data.status === 'ERROR') {
@@ -580,21 +586,38 @@ api.onStatsUpdate(data => window.AppState.updateStats(data));
 api.onLiveLog(msg => window.addLog(msg));
 
 api.onOutlookStatus(statusData => {
-    const status = document.getElementById('engine-status');
-    if (!status) return;
-    const running = typeof statusData === 'object' ? !!statusData.running : !!statusData;
-    const isStandby = typeof statusData === 'object' ? !!statusData.standby : !running;
-    if (running) {
-        status.className = 'badge badge-safe';
-        status.textContent = 'Monitoring Active';
+    const statusEl = document.getElementById('engine-status');
+    let state = 'Running';
+    if (typeof statusData === 'string') {
+        state = statusData;
+    } else if (statusData && typeof statusData === 'object') {
+        if (statusData.status) state = statusData.status;
+        else if (statusData.running !== undefined) state = statusData.running ? 'Running' : (statusData.standby ? 'Standby' : 'Stopped');
+    }
+
+    const stateLower = (state || '').toLowerCase();
+    const isRunning = stateLower === 'running' || stateLower === 'active';
+    const isStandby = stateLower === 'standby' || stateLower.includes('idle') || stateLower.includes('waiting');
+
+    if (statusEl) {
+        if (isRunning) {
+            statusEl.className = 'badge badge-safe';
+            statusEl.textContent = 'Monitoring Active';
+        } else if (isStandby) {
+            statusEl.className = 'badge badge-spam';
+            statusEl.textContent = 'Standby (Outlook Idle)';
+        } else {
+            statusEl.className = 'badge badge-malicious';
+            statusEl.textContent = 'Protection Stopped';
+        }
+    }
+
+    // Keep power button Active unless user explicitly disabled protection in config
+    const isGloballyEnabled = !window.AppState || !window.AppState.config || window.AppState.config.enabled !== false;
+    if (isGloballyEnabled) {
         window.updatePowerButtonUI(true);
-    } else if (isStandby) {
-        status.className = 'badge badge-spam';
-        status.textContent = 'Standby (Outlook Idle)';
     } else {
-        status.className = 'badge badge-malicious';
-        status.textContent = 'Protection Stopped';
-        window.updatePowerButtonUI(false);
+        window.updatePowerButtonUI(isRunning);
     }
 });
 
@@ -603,7 +626,54 @@ window.winMaximize = () => api.maximizeWindow ? api.maximizeWindow() : null;
 window.winHide = () => api.hideWindow();
 window.winClose = () => api.closeWindow ? api.closeWindow() : api.hideWindow();
 
+function initFeedSplitter() {
+    const splitter = document.getElementById('feed-splitter');
+    const feed = document.getElementById('activity-feed-container');
+    if (!splitter || !feed) return;
+
+    try {
+        const savedH = localStorage.getItem('deskguard_activity_feed_height');
+        if (savedH) {
+            const hNum = parseInt(savedH, 10);
+            if (hNum >= 50 && hNum <= 600) {
+                feed.style.height = `${hNum}px`;
+            }
+        }
+    } catch {}
+
+    splitter.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const startY = e.pageY;
+        const startH = feed.offsetHeight;
+        splitter.classList.add('dragging');
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+
+        function onMouseMove(moveEvent) {
+            const diff = startY - moveEvent.pageY;
+            const newH = Math.max(50, Math.min(window.innerHeight * 0.6, startH + diff));
+            feed.style.height = `${newH}px`;
+        }
+
+        function onMouseUp(upEvent) {
+            const diff = startY - upEvent.pageY;
+            const finalH = Math.max(50, Math.min(window.innerHeight * 0.6, startH + diff));
+            feed.style.height = `${finalH}px`;
+            try { localStorage.setItem('deskguard_activity_feed_height', String(finalH)); } catch {}
+            splitter.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        }
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+    });
+}
+
 async function init() {
+    initFeedSplitter();
     const stats = await api.getStats();
     window.AppState.updateStats(stats);
     try {
@@ -668,26 +738,60 @@ window.customizeWizardSettings = async function() {
     }
 };
 
-window.showNotification = function(msg, isError = false) {
+window.showNotification = function(msg, isError = false, type = null) {
     if (typeof window.addLog === 'function') {
         window.addLog(msg);
     }
-    let toast = document.getElementById('app-notification-toast');
-    if (!toast) {
-        toast = document.createElement('div');
-        toast.id = 'app-notification-toast';
-        toast.style.cssText = 'position:fixed; bottom:20px; right:20px; z-index:99999; padding:12px 20px; border-radius:8px; font-size:0.85rem; font-weight:600; color:#fff; box-shadow:0 8px 24px rgba(0,0,0,0.5); transition:all 0.3s ease; pointer-events:none; opacity:0; transform:translateY(10px);';
-        document.body.appendChild(toast);
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
     }
-    toast.style.background = isError ? 'var(--danger, #d83b01)' : 'var(--accent, #0078d4)';
-    toast.textContent = msg;
-    toast.style.opacity = '1';
-    toast.style.transform = 'translateY(0)';
-    clearTimeout(toast._timer);
-    toast._timer = setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateY(10px)';
-    }, 3500);
+
+    const toast = document.createElement('div');
+    const toastType = type || (isError ? 'error' : 'info');
+    toast.className = `toast-item toast-${toastType}`;
+
+    let iconSvg = '';
+    if (toastType === 'error') {
+        iconSvg = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2.5" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
+    } else if (toastType === 'success') {
+        iconSvg = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.5" style="flex-shrink:0;"><path d="M20 6L9 17l-5-5"></path></svg>';
+    } else if (toastType === 'warning') {
+        iconSvg = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2.5" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
+    } else {
+        iconSvg = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
+    }
+
+    const safeMsg = (typeof window.escapeHtml === 'function') ? window.escapeHtml(msg) : msg;
+    toast.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+            ${iconSvg}
+            <span style="word-break: break-word; line-height: 1.35;">${safeMsg}</span>
+        </div>
+        <button type="button" class="toast-close" title="Dismiss">&times;</button>
+    `;
+
+    const closeBtn = toast.querySelector('.toast-close');
+    let timer = null;
+    const dismiss = () => {
+        clearTimeout(timer);
+        toast.classList.remove('toast-show');
+        setTimeout(() => {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 300);
+    };
+
+    if (closeBtn) closeBtn.onclick = dismiss;
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.add('toast-show');
+    });
+
+    const duration = isError ? 5000 : 3500;
+    timer = setTimeout(dismiss, duration);
 };
 
 window.openModal = openModal;
@@ -806,6 +910,7 @@ window.clearVaultSearch = function() {
     if (searchInput) searchInput.value = '';
     if (fromInput) fromInput.value = '';
     if (clearBtn) clearBtn.style.display = 'none';
+    if (typeof window.syncFilterChipStyles === 'function') window.syncFilterChipStyles();
     window.vaultSearchActive = false;
     window.AppState.renderDashboard(true);
 };
@@ -818,6 +923,7 @@ function initVaultSearchToolbar() {
 
     if (searchInput) {
         searchInput.addEventListener('input', () => {
+            if (typeof window.syncFilterChipStyles === 'function') window.syncFilterChipStyles();
             clearTimeout(vaultSearchDebounceTimer);
             vaultSearchDebounceTimer = setTimeout(() => {
                 window.executeVaultSearch();

@@ -48,8 +48,9 @@ public sealed partial class ScanConfiguration
     public bool OnAccessEnabled { get; set; } = true;
     public bool HistoryScanEnabled { get; set; } = true;
     public bool DeepHistoryScanEnabled { get; set; } = false;
+    public bool DeepLocalAvScanAll { get; set; } = false;
     public int OnDemandLimit { get; set; } = 0;
-    public Dictionary<string, double> Weights { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, double> Weights { get; set; } = new(DeskGuard.Core.Scoring.ScoringEngine.DefaultWeights, StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, bool> Toggles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public ThresholdSettings Thresholds { get; set; } = new();
     public Dictionary<string, int> KnownDomains { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -220,6 +221,7 @@ public sealed partial class ScanConfiguration
             LabelInOutlook = this.LabelInOutlook,
             Theme = this.Theme,
             HistoryScanScope = this.HistoryScanScope,
+            DeepLocalAvScanAll = this.DeepLocalAvScanAll,
             VtKey = string.Empty
         };
     }
@@ -231,6 +233,7 @@ public sealed partial class ScanConfiguration
         this.OnAccessEnabled = imported.OnAccessEnabled;
         this.HistoryScanEnabled = imported.HistoryScanEnabled;
         this.DeepHistoryScanEnabled = imported.DeepHistoryScanEnabled;
+        this.DeepLocalAvScanAll = imported.DeepLocalAvScanAll;
         this.Weights = new Dictionary<string, double>(imported.Weights, StringComparer.OrdinalIgnoreCase);
         this.Toggles = new Dictionary<string, bool>(imported.Toggles, StringComparer.OrdinalIgnoreCase);
         if (imported.Thresholds != null)

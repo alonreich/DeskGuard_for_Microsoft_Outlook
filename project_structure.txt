@@ -83,6 +83,6 @@ DeskGuard_for_Microsoft_Outlook/
 |   `-- DeskGuard.Interop.Outlook/   # Hardware/COM: Outlook MAPI interop & STA pump
 |
 `-- tests/
-    |-- DeskGuard.Core.Tests/        # Unit tests for scoring engine & domain parsing
+    |-- DeskGuard.Core.Tests/        # Unit tests for scoring engine, domain parsing & DPAPI config
     `-- DeskGuard.Data.Tests/        # Integration tests for SQLite vault & deduplication
 ================================================================================
