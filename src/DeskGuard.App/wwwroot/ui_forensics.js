@@ -10,18 +10,43 @@ window.escapeHtml = window.escapeHtml || function(str) {
 };
 window.escapeHTML = window.escapeHtml;
 
-window.renderForensics = async (item) => {
-    const body = document.getElementById('forensics-body');
-    if (!body || !item) return;
-    
-    body.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted);">Deconstructing forensic snapshots...</div>';
+window.currentForensicsItem = null;
+
+window.renderForensicsTab = async (item) => {
+    window.currentForensicsItem = item;
+    const container = document.getElementById('forensics-tab-content');
+    const toolbar = document.getElementById('forensics-toolbar-actions');
+    if (!container || !item) return;
+
+    if (toolbar) {
+        toolbar.innerHTML = `
+            <button type="button" class="btn-ui" onclick="window.forensicsOpenInOutlook()" style="font-size: 0.78rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                Open in Outlook
+            </button>
+            <button type="button" class="btn-ui" onclick="window.forensicsScanVirusTotal()" style="font-size: 0.78rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>
+                VirusTotal
+            </button>
+            <button type="button" class="btn-ui" onclick="window.forensicsQuarantine()" style="font-size: 0.78rem; padding: 6px 12px; color: var(--warn); display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                Quarantine
+            </button>
+            <button type="button" class="btn-ui" onclick="window.forensicsDelete()" style="font-size: 0.78rem; padding: 6px 12px; color: var(--danger); display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                Delete
+            </button>
+        `;
+    }
+
+    container.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 300px; color: var(--muted);"><div class="spin" style="width: 24px; height: 24px; border: 2px solid var(--accent); border-top-color: transparent; border-radius: 50%; margin-right: 12px;"></div> Deconstructing email forensics...</div>';
 
     const data = await window.securityApi.getForensics({
         entryId: item.entryId || item.id,
         originalEntryId: item.originalEntryId,
         fingerprint: item.fingerprint
     });
-    
+
     let rawHeaders = (data && data.fullHeaders && data.fullHeaders !== 'N/A' && data.fullHeaders !== 'Unavailable')
         ? data.fullHeaders
         : ((data && data.headers && data.headers !== 'N/A' && data.headers !== 'Unavailable')
@@ -59,29 +84,26 @@ window.renderForensics = async (item) => {
         if (parts.length > 1) {
             const key = parts[0].trim();
             const val = parts.slice(1).join(':').trim();
-            const keyEsc = window.escapeHtml(key);
-            const valEsc = window.escapeHtml(val);
-            return `<div style="display: flex; gap: 10px; margin-bottom: 4px; border-bottom: 1px solid #222; padding: 4px 0;">
-                <span style="color: var(--accent); font-weight: 600; min-width: 150px; font-family: monospace; font-size: 0.75rem;">${keyEsc}:</span>
-                <span style="color: var(--text); font-family: monospace; font-size: 0.75rem; word-break: break-all;">${valEsc}</span>
+            return `<div style="display: flex; gap: 12px; margin-bottom: 4px; border-bottom: 1px solid var(--border); padding: 5px 0;">
+                <span style="color: var(--accent); font-weight: 600; min-width: 170px; font-family: monospace; font-size: 0.78rem;">${window.escapeHtml(key)}:</span>
+                <span style="color: var(--text); font-family: monospace; font-size: 0.78rem; word-break: break-all;">${window.escapeHtml(val)}</span>
             </div>`;
         }
-        return `<div style="color: var(--muted); font-size: 0.75rem;">${window.escapeHtml(line)}</div>`;
+        return `<div style="color: var(--muted); font-size: 0.78rem;">${window.escapeHtml(line)}</div>`;
     }).join('');
 
-    const safeSubject = window.escapeHtml(item.subject || item.details || 'No Subject');
-    const safeSender = window.escapeHtml(item.sender || 'Unknown');
+    const safeSubject = window.escapeHtml(item.subject || item.details || '(No Subject)');
+    const safeSender = window.escapeHtml(item.sender || item.from || 'Unknown');
+    const safeRecipient = window.escapeHtml(item.to || item.recipient || item.recips || 'N/A');
     const safeVerdict = window.escapeHtml(item.verdict || 'Safe');
-    const safeTier = window.escapeHtml(item.tier || 'Standard Heuristics');
     const verdictClass = (item.verdict || '').toLowerCase().includes('malicious') ? 'badge-malicious' : ((item.verdict || '').toLowerCase().includes('spam') ? 'badge-spam' : 'badge-safe');
 
-    // Parse structured penalties if present
+    // Parse penalties
     let penalties = [];
     if (Array.isArray(item.penalties)) penalties = item.penalties;
     else if (typeof item.penalties_json === 'string') {
         try { penalties = JSON.parse(item.penalties_json); } catch {}
     } else if (item.tier) {
-        // Fallback parse tier tokens
         const tokens = (item.tier || '').split('|').map(t => t.trim());
         penalties = tokens.map(t => {
             const m = t.match(/^([^\[]+)\[-(\d+(?:\.\d+)?)\]/);
@@ -89,7 +111,6 @@ window.renderForensics = async (item) => {
         }).filter(p => p.points > 0);
     }
 
-    // Stacked bars calculation
     const palette = ['#e81123', '#ff8c00', '#d83b01', '#ea4335', '#fbbc05', '#ff4081', '#9c27b0', '#0078d4'];
     const totalPoints = penalties.reduce((sum, p) => sum + p.points, 0);
     let barSegmentsHtml = '';
@@ -103,171 +124,106 @@ window.renderForensics = async (item) => {
         barSegmentsHtml = `<div style="width: 100%; background: var(--safe); height: 100%;" title="Clean (100% Score)"></div>`;
     }
 
-    body.innerHTML = `
-        <div style="display: flex; flex-direction: column; gap: 16px; height: 100%;">
-            <div style="background: var(--surface-low); padding: 20px; border: 1px solid var(--border); border-radius: 8px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <h3 style="margin: 0; color: var(--accent); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">Security Incident Profile</h3>
-                    <button id="forensic-btn-open-outlook" class="primary" style="font-size: 0.75rem; padding: 5px 12px;">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                        Open in Outlook
-                    </button>
+    const bodyContent = (data && data.body) ? data.body : (item.body || 'No message body content captured in vault.');
+
+    container.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 18px; max-width: 1100px; margin: 0 auto;">
+            <!-- Profile Card -->
+            <div style="background: var(--surface-low); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px;">
+                    <div>
+                        <div style="font-size: 1.15rem; font-weight: 700; color: var(--text); line-height: 1.4;">${safeSubject}</div>
+                        <div style="font-size: 0.8rem; color: var(--muted); margin-top: 4px;">From: <b style="color: var(--text);">${safeSender}</b> &bull; To: ${safeRecipient} &bull; ${item.date || ''} ${item.time || ''}</div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                        <span class="badge ${verdictClass}" style="font-size: 0.85rem; padding: 5px 12px;">${safeVerdict}</span>
+                        <div style="font-size: 1.4rem; font-weight: 800; font-family: monospace; color: ${parseInt(item.score) < 50 ? 'var(--danger)' : (parseInt(item.score) < 80 ? 'var(--warn)' : 'var(--ok)')};">${item.score !== undefined ? item.score : 100}%</div>
+                    </div>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                    <div>
-                        <label style="font-size: 0.65rem; color: var(--muted); font-weight: 700;">SUBJECT</label>
-                        <div style="font-weight: 600; font-size: 0.9rem; color: var(--text);">${safeSubject}</div>
+
+                <!-- Risk Score Bar -->
+                <div style="background: var(--surface-mid); border-radius: 4px; padding: 10px 14px; border: 1px solid var(--border);">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--muted); font-weight: 700; margin-bottom: 6px;">
+                        <span>SECURITY INTEGRITY SPECTRUM</span>
+                        <span>${100 - (parseInt(item.score) || 100)} PTS DEDUCTED</span>
                     </div>
-                    <div>
-                        <label style="font-size: 0.65rem; color: var(--muted); font-weight: 700;">SENDER ORIGIN</label>
-                        <div style="font-weight: 600; font-size: 0.9rem; color: var(--text);">${safeSender}</div>
-                    </div>
-                    <div>
-                        <label style="font-size: 0.65rem; color: var(--muted); font-weight: 700;">VERDICT</label>
-                        <div><span class="badge ${verdictClass}">${safeVerdict}</span></div>
-                    </div>
-                    <div>
-                        <label style="font-size: 0.65rem; color: var(--muted); font-weight: 700;">DETECTION SOURCE</label>
-                        <div style="font-weight: 600; font-family: monospace; font-size: 0.8rem; color: var(--muted);">${safeTier}</div>
+                    <div style="display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: #222;">
+                        ${barSegmentsHtml}
                     </div>
                 </div>
             </div>
 
-            <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--surface-low); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
-                <div role="tablist" aria-label="Forensic Information Tabs" style="display: flex; border-bottom: 1px solid var(--border); background: var(--surface-mid);">
-                    <button type="button" role="tab" id="tab-btn-headers" aria-selected="true" tabindex="0" onclick="switchForensicTab('headers')" style="padding: 12px 24px; cursor: pointer; border: none; border-bottom: 2px solid var(--accent); background: transparent; color: var(--accent); font-weight: 600; font-size: 0.75rem; letter-spacing: 0.5px; border-radius: 0;">TRANSPORT HEADERS</button>
-                    <button type="button" role="tab" id="tab-btn-body" aria-selected="false" tabindex="0" onclick="switchForensicTab('body')" style="padding: 12px 24px; cursor: pointer; border: none; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 0.75rem; letter-spacing: 0.5px; border-radius: 0;">MESSAGE CONTENT</button>
-                    <button type="button" role="tab" id="tab-btn-scores" aria-selected="false" tabindex="0" onclick="switchForensicTab('scores')" style="padding: 12px 24px; cursor: pointer; border: none; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 0.75rem; letter-spacing: 0.5px; border-radius: 0;">SCORE BREAKDOWN &amp; WHAT-IF</button>
+            <!-- Tabbed diagnostic panes -->
+            <div style="background: var(--surface-low); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;">
+                <div style="display: flex; border-bottom: 1px solid var(--border); background: var(--surface-mid); padding: 0 16px;">
+                    <button type="button" class="settings-tab-btn active" id="forensic-nav-body" onclick="window.switchForensicsSubTab('body')">Message Body</button>
+                    <button type="button" class="settings-tab-btn" id="forensic-nav-scores" onclick="window.switchForensicsSubTab('scores')">Engine Penalties (${penalties.length})</button>
+                    <button type="button" class="settings-tab-btn" id="forensic-nav-headers" onclick="window.switchForensicsSubTab('headers')">MIME Transport Headers</button>
                 </div>
-                <div id="forensic-tab-headers" style="flex: 1; overflow: auto; padding: 16px; background: #080a11;">
-                    ${headersHtml}
-                </div>
-                <div id="forensic-tab-body" style="display: none; flex: 1; overflow: auto; padding: 20px; background: #080a11; font-family: 'Consolas', monospace; font-size: 0.8rem; color: #a0a0a0; white-space: pre-wrap; line-height: 1.6;"></div>
-                <div id="forensic-tab-scores" style="display: none; flex: 1; overflow: auto; padding: 20px; background: #080a11;">
-                    <div style="margin-bottom: 20px;">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text);">Penalty Stack Bar Chart</span>
-                            <span id="whatif-score-display" style="font-weight: 700; color: var(--accent); font-size: 0.95rem;">Score: ${item.score !== undefined ? item.score : 100}% (${safeVerdict})</span>
-                        </div>
-                        <div style="display: flex; height: 16px; border-radius: 4px; overflow: hidden; background: #222; border: 1px solid var(--border);">
-                            ${barSegmentsHtml}
-                        </div>
-                    </div>
 
-                    <div style="margin-bottom: 24px;">
-                        <h4 style="margin: 0 0 10px 0; font-size: 0.8rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.5px;">Applied Security Penalties</h4>
-                        <div style="display: flex; flex-direction: column; gap: 8px;">
-                            ${penalties.length > 0 ? penalties.map((p, idx) => `
-                                <div style="display: flex; justify-content: space-between; align-items: center; background: var(--surface-low); padding: 8px 12px; border-radius: 4px; border-left: 3px solid ${palette[idx % palette.length]};">
-                                    <div style="display: flex; flex-direction: column; gap: 2px;">
-                                        <span style="font-weight: 600; font-size: 0.85rem; color: var(--text);">${window.escapeHtml(p.rule)}</span>
-                                        <span style="font-size: 0.75rem; color: var(--muted);">${window.escapeHtml(p.evidence || 'Heuristic check triggered')}</span>
+                <div id="forensic-pane-body" style="padding: 20px; min-height: 250px; max-height: 500px; overflow-y: auto; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 0.85rem; line-height: 1.6; color: var(--text); white-space: pre-wrap; background: var(--bg);">
+                    ${window.escapeHtml(bodyContent)}
+                </div>
+
+                <div id="forensic-pane-scores" style="display: none; padding: 20px; max-height: 500px; overflow-y: auto;">
+                    ${penalties.length > 0 ? `
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            ${penalties.map((p, idx) => `
+                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--surface-mid); border: 1px solid var(--border); border-radius: 6px; border-left: 4px solid ${palette[idx % palette.length]};">
+                                    <div>
+                                        <div style="font-weight: 600; font-size: 0.82rem; color: var(--text);">${window.escapeHtml(p.rule || 'Deduction')}</div>
+                                        <div style="font-size: 0.74rem; color: var(--muted); margin-top: 2px;">${window.escapeHtml(p.evidence || 'Engine threshold triggered')}</div>
                                     </div>
-                                    <span style="font-weight: 700; color: var(--danger); font-size: 0.85rem;">-${p.points} pts</span>
+                                    <span style="font-weight: 700; color: var(--danger); font-family: monospace; font-size: 0.85rem;">-${p.points} pts</span>
                                 </div>
-                            `).join('') : '<div style="color: var(--safe); font-size: 0.85rem;">No penalties applied. Clean security profile.</div>'}
+                            `).join('')}
                         </div>
-                    </div>
+                    ` : `
+                        <div style="padding: 30px; text-align: center; color: var(--ok); font-size: 0.85rem;">
+                            ✔ No penalties detected. This email satisfied all active security checks (DMARC, SPF, DKIM, PTR, Heuristics, and Blacklists).
+                        </div>
+                    `}
+                </div>
 
-                    <div style="background: var(--surface-low); padding: 16px; border-radius: 6px; border: 1px solid var(--border);">
-                        <h4 style="margin: 0 0 8px 0; font-size: 0.8rem; text-transform: uppercase; color: var(--accent); letter-spacing: 0.5px;">Live "What-If" Simulation</h4>
-                        <p style="font-size: 0.75rem; color: var(--muted); margin-top: 0;">Adjust rule slider values to test how threshold tuning affects this email without altering production rules.</p>
-                        <div style="display: flex; gap: 16px; align-items: center; margin-top: 10px;">
-                            <label style="font-size: 0.8rem; color: var(--text); min-width: 140px;">Test Rule Sensitivity:</label>
-                            <input type="range" id="whatif-multiplier-slider" min="0" max="200" value="100" style="flex: 1;" />
-                            <span id="whatif-slider-val" style="font-size: 0.8rem; color: var(--accent); min-width: 45px;">1.0x</span>
-                        </div>
-                    </div>
+                <div id="forensic-pane-headers" style="display: none; padding: 16px 20px; max-height: 500px; overflow-y: auto; background: #0a0c12;">
+                    ${headersHtml}
                 </div>
             </div>
         </div>
     `;
+};
 
-    const bodyTabEl = document.getElementById('forensic-tab-body');
-    if (bodyTabEl) {
-        let bText = (data && data.body && data.body !== 'N/A' && data.body !== 'Unavailable')
-            ? data.body
-            : (item.body || '');
-        if (bText && typeof bText === 'string') {
-            const clean = bText.trim();
-            if (/^[A-Za-z0-9+/]+={0,2}$/.test(clean) && clean.length % 4 === 0 && !clean.includes(' ')) {
-                try {
-                    const dec = atob(clean);
-                    if (dec && dec.length > 0) bText = dec;
-                } catch {}
-            }
-        }
-        bodyTabEl.textContent = (bText && bText.trim().length > 0) ? bText : '(No message body content)';
-    }
+window.switchForensicsSubTab = (tab) => {
+    ['body', 'scores', 'headers'].forEach(t => {
+        const btn = document.getElementById(`forensic-nav-${t}`);
+        const pane = document.getElementById(`forensic-pane-${t}`);
+        if (btn) btn.classList.toggle('active', t === tab);
+        if (pane) pane.style.display = (t === tab) ? 'block' : 'none';
+    });
+};
 
-    // What-If live simulation slider listener
-    const whatIfSlider = document.getElementById('whatif-multiplier-slider');
-    const whatIfDisplay = document.getElementById('whatif-score-display');
-    const whatIfLabel = document.getElementById('whatif-slider-val');
-    if (whatIfSlider && whatIfDisplay && whatIfLabel) {
-        whatIfSlider.oninput = async () => {
-            const multiplier = whatIfSlider.value / 100;
-            whatIfLabel.textContent = `${multiplier.toFixed(1)}x`;
-            const baseDeduction = totalPoints;
-            const newDeduction = Math.round(baseDeduction * multiplier);
-            const newScore = Math.max(0, Math.min(100, 100 - newDeduction));
-            let newVerdict = 'Safe';
-            if (newScore <= 20) newVerdict = 'Malicious';
-            else if (newScore <= 40) newVerdict = 'Spam';
-            else if (newScore <= 55) newVerdict = 'Suspicious';
-
-            whatIfDisplay.textContent = `Score: ${newScore}% (${newVerdict})`;
-        };
-    }
-
-    const fOpenOutlook = document.getElementById('forensic-btn-open-outlook');
-    if (fOpenOutlook) {
-        fOpenOutlook.onclick = async () => {
-            fOpenOutlook.disabled = true;
-            const origText = fOpenOutlook.innerHTML;
-            fOpenOutlook.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Launching...`;
-            try {
-                await window.securityApi.openEmail({
-                    entryId: item.entryId || item.id,
-                    storeId: item.storeId || ''
-                });
-            } catch (e) {}
-            fOpenOutlook.disabled = false;
-            fOpenOutlook.innerHTML = origText;
-        };
+window.forensicsOpenInOutlook = () => {
+    if (window.currentForensicsItem && typeof window.openIncidentInOutlook === 'function') {
+        window.openIncidentInOutlook(window.currentForensicsItem);
     }
 };
 
-window.switchForensicTab = (tab) => {
-    const hBtn = document.getElementById('tab-btn-headers');
-    const bBtn = document.getElementById('tab-btn-body');
-    const sBtn = document.getElementById('tab-btn-scores');
-    const hTab = document.getElementById('forensic-tab-headers');
-    const bTab = document.getElementById('forensic-tab-body');
-    const sTab = document.getElementById('forensic-tab-scores');
-    if (!hBtn || !bBtn || !sBtn || !hTab || !bTab || !sTab) return;
-
-    hBtn.style.borderBottom = '2px solid transparent'; hBtn.style.color = 'var(--muted)'; hBtn.setAttribute('aria-selected', 'false');
-    bBtn.style.borderBottom = '2px solid transparent'; bBtn.style.color = 'var(--muted)'; bBtn.setAttribute('aria-selected', 'false');
-    sBtn.style.borderBottom = '2px solid transparent'; sBtn.style.color = 'var(--muted)'; sBtn.setAttribute('aria-selected', 'false');
-    hTab.style.display = 'none';
-    bTab.style.display = 'none';
-    sTab.style.display = 'none';
-
-    if (tab === 'headers') {
-        hBtn.style.borderBottom = '2px solid var(--accent)';
-        hBtn.style.color = 'var(--accent)';
-        hBtn.setAttribute('aria-selected', 'true');
-        hTab.style.display = 'block';
-    } else if (tab === 'body') {
-        bBtn.style.borderBottom = '2px solid var(--accent)';
-        bBtn.style.color = 'var(--accent)';
-        bBtn.setAttribute('aria-selected', 'true');
-        bTab.style.display = 'block';
-    } else if (tab === 'scores') {
-        sBtn.style.borderBottom = '2px solid var(--accent)';
-        sBtn.style.color = 'var(--accent)';
-        sBtn.setAttribute('aria-selected', 'true');
-        sTab.style.display = 'block';
+window.forensicsScanVirusTotal = () => {
+    if (window.currentForensicsItem && typeof window.cloudScanIncident === 'function') {
+        window.cloudScanIncident(window.currentForensicsItem.entryId || window.currentForensicsItem.id);
     }
 };
+
+window.forensicsQuarantine = () => {
+    if (window.currentForensicsItem && typeof window.quarantineIncident === 'function') {
+        window.quarantineIncident(window.currentForensicsItem.entryId || window.currentForensicsItem.id, window.currentForensicsItem.fingerprint);
+    }
+};
+
+window.forensicsDelete = () => {
+    if (window.currentForensicsItem && typeof window.deleteIncident === 'function') {
+        window.deleteIncident(window.currentForensicsItem.entryId || window.currentForensicsItem.id);
+    }
+};
+
+window.renderForensics = window.renderForensicsTab;

@@ -76,6 +76,9 @@
         checkStartup: () => invoke('check-startup'),
         setThreatIntelLevel: value => invoke('set-threat-intel-level', value),
         setFirstRun: value => invoke('set-first-run', value),
+        testVTKey: key => invoke('test-vt-key', { key }),
+        setTheme: theme => invoke('set-theme', { theme }),
+        restoreDefaults: () => invoke('restore-defaults'),
         exportConfig: async () => {
             const res = await invoke('export-config');
             if (res && (res.json || res.config)) {

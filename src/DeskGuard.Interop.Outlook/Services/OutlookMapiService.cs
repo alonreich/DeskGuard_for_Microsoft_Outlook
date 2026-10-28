@@ -368,6 +368,33 @@ public sealed class OutlookMapiService : IOutlookMapiService
             Dictionary<string, List<CrawledEmailSummary>> groupsByDna = new(StringComparer.OrdinalIgnoreCase);
             int scanned = 0;
 
+            static int GetFolderRank(string folderPath)
+            {
+                if (string.IsNullOrWhiteSpace(folderPath)) return 50;
+                string path = folderPath.ToLowerInvariant();
+                if (path.EndsWith("\\inbox") || path == "inbox" || path.Contains("\\inbox\\")) return 1;
+                if (path.Contains("sent") || path.Contains("outbox")) return 2;
+                if (!path.Contains("deleted") && !path.Contains("trash") && !path.Contains("junk") && 
+                    !path.Contains("spam") && !path.Contains("conflict") && !path.Contains("sync issue"))
+                {
+                    if (path.Contains("archive")) return 4;
+                    return 3;
+                }
+                if (path.Contains("junk") || path.Contains("spam")) return 10;
+                if (path.Contains("conflict") || path.Contains("sync issue") || path.Contains("local failure")) return 20;
+                if (path.Contains("deleted") || path.Contains("trash")) return 99;
+                return 50;
+            }
+
+            bool IsBetterSurvivor(CrawledEmailSummary candidate, CrawledEmailSummary current)
+            {
+                int rankCand = GetFolderRank(candidate.FolderPath);
+                int rankCurr = GetFolderRank(current.FolderPath);
+                if (rankCand != rankCurr) return rankCand < rankCurr;
+                if (candidate.Size != current.Size) return candidate.Size > current.Size;
+                return false;
+            }
+
             List<DuplicateItem> ElectDuplicates(Dictionary<string, List<CrawledEmailSummary>> groups)
             {
                 List<DuplicateItem> result = [];
@@ -379,18 +406,7 @@ public sealed class OutlookMapiService : IOutlookMapiService
                     for (int i = 1; i < list.Count; i++)
                     {
                         var candidate = list[i];
-                        bool survivorIsJunk = survivor.FolderPath.Contains("Junk", StringComparison.OrdinalIgnoreCase);
-                        bool candidateIsJunk = candidate.FolderPath.Contains("Junk", StringComparison.OrdinalIgnoreCase);
-
-                        if (survivorIsJunk && !candidateIsJunk)
-                        {
-                            survivor = candidate;
-                        }
-                        else if (!survivorIsJunk && candidateIsJunk)
-                        {
-                            // keep current survivor
-                        }
-                        else if (candidate.Size > survivor.Size)
+                        if (IsBetterSurvivor(candidate, survivor))
                         {
                             survivor = candidate;
                         }
@@ -1084,6 +1100,22 @@ public sealed class OutlookMapiService : IOutlookMapiService
             }
             mailItem ??= _mapiNamespace.GetItemFromID(entryId) as MailItem;
             if (mailItem == null) return;
+
+            if (isLiveArrival)
+            {
+                if (!_config.OnAccessEnabled)
+                {
+                    return;
+                }
+                try
+                {
+                    if (!mailItem.UnRead)
+                    {
+                        return;
+                    }
+                }
+                catch { }
+            }
 
             string fp = OutlookItemAccessor.GetFingerprint(mailItem);
             string legacyFp = OutlookItemAccessor.GetLegacyFingerprint(mailItem);

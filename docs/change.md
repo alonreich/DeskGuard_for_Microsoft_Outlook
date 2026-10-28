@@ -25,6 +25,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.11] - 2026-10-28
+
+### Added
+- **5-Tab Settings Menu Architecture**: Overhauled Settings preferences into 5 clear tabs: `General & Startup`, `Anti-Spam Engines`, `Threat Cloud & VirusTotal`, `Senders & Rules`, and `Maintenance & Danger Zone` with live instant search filtering across all settings.
+- **Native Win32 DPAPI Encryption for VirusTotal API Key**: Secured `VtKey` at rest using `CryptProtectData` and `CryptUnprotectData` via native Windows `Crypt32.dll` (`"dpapi:..."`), preventing plain-text credential leaks in `config.json`.
+- **VirusTotal Connection Test & Visibility Eye Toggle**: Added password reveal/mask toggle (`•••••` / plain text) and interactive `[Test Connection]` button verifying live API key connectivity against cloud threat intelligence endpoints.
+- **Theme Selection & Dynamic Switching**: Added `Theme` property (`dark`, `light`, `system`) with instant CSS variable switching and session persistence.
+- **Interactive Senders & Rules Tag Managers**: Implemented interactive pill tag managers for Trusted Senders (Whitelist), Blocked Senders (Blacklist), and Custom Spam Phrases with immediate add/remove.
+- **Sanitized Export & Safe Merge Import**: Added `CreateExportPackage()` redacting secrets and screen coordinates for safe export sharing, and `ImportSettings()` merging policy settings safely without clobbering credentials or window geometry.
+- **Restore Factory Defaults**: Added one-click default policy restore with confirmation modal.
+- **Isolated Danger Zone**: Isolated destructive actions (Clear Incident Vault, Scorched Earth Factory Reset) in an explicit red warning card with keyword confirmation dialogs.
+- **Duplicate Cluster Cards Architecture**: Overhauled Duplicate Email Finder with grouped Cluster Cards for 2, 3, or more copies, displaying the authentic survivor in a locked green shield banner (`🛡️ SOLE SURVIVOR: KEEPING SAFE`), with direct `[Open Survivor in Outlook]` button and zero-accidental-deletion protection (survivor checkbox is locked/disabled).
+- **Redundant Copy Inspection & Safe Cleanup**: Listed all redundant copies with individual checkboxes, folder badges, sizes, timestamps, and `[Open Copy in Outlook]` buttons; `Select All` selects redundant copies only, leaving 100% of survivors untouched.
+- **Full-Width Dashboard Table with 5 Row Actions**: Expanded dashboard table to 100% width by removing the right detail pane; added 5 per-row action buttons in exact sequence: `[Open in Outlook]`, `[Forensic Report]`, `[VirusTotal]`, `[Delete Item]`, and `[Quarantine]`.
+- **Row Double-Click Integration**: Double-clicking any incident row immediately launches the message in Microsoft Outlook inspector.
+- **Draggable Table Column Resizers**: Implemented draggable column resize handles for dashboard and duplicate tables with session persistence in `localStorage`.
+- **Dedicated Forensic Report Tab**: Added a full-page `#tab-forensics` navigation tab with diagnostic profile card, visual score deduction bar, full message body preview, technical MIME transport header inspector, and action buttons.
+- **Left Navigation Reorganization**: Reordered sidebar to: Dashboard &rarr; Duplicate Email Finder &rarr; Forensic Report &rarr; Search Through Emails &rarr; Activity Feed &rarr; Audit Logs &rarr; Settings; renamed "Vault Search" to "Search Through Emails" and "Duplicate Finder" to "Duplicate Email Finder".
+- **Continuous Historical Mailbox Sweeping**: Background scanning now performs a fast priority sweep for recent items, then seamlessly continues crawling older historical emails across all folders (`RunSweepAsync(DateTime.MinValue)`) and indexes the search vault (`RunCrawlerAsync`), resolving the issue where scanning halted at 525 emails.
+- **Targeted On-Access Surveillance**: Restricted on-access scanning events strictly to unread and newly arriving messages (`isLiveArrival && mailItem.UnRead`).
+- Added comprehensive unit tests in `ScanConfigurationTests.cs` for DPAPI round-trip encryption, sanitized export package, safe merge import, and default configuration values.
+
+### Changed
+- Removed top dashboard control line ("All scanned Emails", verify list, engine weights); engine weights and sensitivity tuning moved into Settings Tab 2.
+- Streamlined "Full Audit" confirmation dialog in `ui_main.js` to a single-click "Yes, Proceed" button, eliminating the required keyword typing ("AUDIT").
+- Corrected threat scoring documentation in `docs/core.md` from legacy inverted hazard scores to the true 100.0% safety deduction model with exact threshold bounds.
+- Corrected host window architecture descriptions in `docs/app.md`, `docs/architecture.md`, and `project_structure.txt` from legacy WinForms references to native Win32 unmanaged windows.
+
+### Fixed
+- Fixed unintended mailbox sweeps on settings save: `DashboardWindow.cs` now guards `set-enabled` with `!wasEnabled`, preventing repetitive sweep triggers when saving settings.
+- Fixed mailbox scanning stopping at 525 emails by chaining background deep sweeps past the 7-day cutoff.
+- Fixed sweep completion handler in `ui_main.js` silently disabling `HistoryScanEnabled` (`api.setHistoryEnabled(false)`) upon sweep completion.
+- Fixed duplicate items deletion logic enforcing strict folder hierarchy (Inbox > Sent > user folders / archive > Junk > Conflicts > Deleted Items) in both backend election and UI rendering.
+---
+
 ## [1.0.10] - 2026-10-28
 
 ### Added

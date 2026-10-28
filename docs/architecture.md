@@ -15,38 +15,39 @@ It is built as a **.NET 9 / C# 13 Self-Contained Standalone** application, requi
 |                                                                                   |
 |  +--------------------+         +-----------------------+     +----------------+  |
 |  |   System Tray UI   | <-----> |   Dashboard Window    | --> |    WebView2    |  |
-|  |  (WinForms Notify) |         | (Form / Message Pump) |     |  Modern UI /   |  |
-|  +--------------------+         +-----------------------+     |  Vanilla JS    |  |
-|            ^                                ^                 +----------------+  |
+|  |   (Native Win32    |         | (Native Win32 Window /|     |  Modern UI /   |  |
+|  | Message-Only HWND) |         |     Message Pump)     |     |  Vanilla JS    |  |
+|  +--------------------+         +-----------------------+     +----------------+  |
+|            ^                                ^                                     |
 |            |                                | (JSON-RPC Bridge)                   |
 |            v                                v                                     |
 |  +------------------------------------------------------+                         |
 |  |             Application Coordinator                  |                         |
-|  |        (Single Instance Mutex, Config)               |                         |
+|  |     (Single Instance Mutex, Config, Integrity Check) |                         |
 |  +------------------------------------------------------+                         |
 |            |                                |                                     |
 |            v                                v                                     |
 |  +--------------------+         +-----------------------+                         |
 |  |   Scoring Engine   |         |   Vault Repository    |                         |
-|  |  - Heuristics      |         |  - SQLite (WAL Mode)  |                         |
-|  |  - SafeLinks       |         |  - Schema Migrations  |                         |
-|  |  - DNS Threat DB   |         |  - Deduplication Index|                         |
+|  |  - 16 Rule Deduct  |         |  - SQLite (WAL Mode)  |                         |
+|  |  - SafeLinks Unpack|         |  - Schema Migrations  |                         |
+|  |  - Team Cymru DNS  |         |  - Deduplication Index|                         |
 |  +--------------------+         +-----------------------+                         |
 |            ^                                                                      |
 |            | (Dispatched Tasks)                                                   |
 |  +------------------------------------------------------+                         |
 |  |             OutlookStaCoordinator (STA Thread)       |                         |
-|  |  - Dedicated Windows Message Pump                    |                         |
-|  |  - Safe COM Reference Lifetime (ComRef)              |                         |
-|  |  - Named Cross-Process Mutex                         |                         |
+|  |  - Dedicated STA Message Pump (OleInitialize)        |                         |
+|  |  - Cascading COM Activation (ComUtils)               |                         |
+|  |  - Reentrant Named Mutex (OutlookNamedMutex, 30s)    |                         |
 |  +------------------------------------------------------+                         |
 |                            | (MAPI COM Interop)                                   |
-+----------------------------|------------------------------------------------------+
-                             v
-               +---------------------------+
-               |  Microsoft Outlook (MAPI) |
-               |     OUTLOOK.EXE Client    |
-               +---------------------------+
+|                            v                                                      |
+|              +---------------------------+                                        |
+|              |  Microsoft Outlook (MAPI) |                                        |
+|              |     OUTLOOK.EXE Client    |                                        |
+|              +---------------------------+                                        |
++-----------------------------------------------------------------------------------+
 ```
 
 ---
@@ -54,24 +55,31 @@ It is built as a **.NET 9 / C# 13 Self-Contained Standalone** application, requi
 ## 3. Core Architectural Principles
 
 ### 3.1 Single-Threaded Apartment (STA) Isolation
-Microsoft Outlook's COM Object Model is strictly apartment-threaded. Invoking Outlook MAPI methods from arbitrary thread pool threads causes RPC marshalling errors, COM deadlocks, and unexplained Outlook crashes.
+Microsoft Outlook's COM Object Model is strictly apartment-threaded. Invoking Outlook MAPI methods from arbitrary thread pool threads causes RPC marshalling errors (`RPC_E_WRONG_THREAD`), COM deadlocks, and unexplained Outlook crashes.
 
-- **Solution**: `OutlookStaCoordinator` maintains a dedicated background STA thread with an active Windows message pump (`Application.Run`).
+- **Solution**: `OutlookStaCoordinator` maintains a dedicated background STA thread with active OLE initialization (`OleInitialize` / `OleUninitialize`) and a native message pump.
 - All COM operations (item reads, folder moves, event attachments) are dispatched through this coordinator using a prioritized work queue (`PriorityJobQueue`).
+- A recursive named cross-process mutex (`OutlookNamedMutex`) with a 30-second timeout ensures safe synchronization without self-deadlocks.
 
-### 3.2 Self-Contained Standalone Single-File Execution
+### 3.2 Process Integrity Level (UIPI) Architecture
+Windows User Interface Privilege Isolation (UIPI) forbids standard-integrity desktop applications (`OUTLOOK.EXE`) from accepting COM LPC/RPC automation from elevated (administrator) processes.
+- If DeskGuard is launched with administrative privileges (e.g. from an installer), it detects elevation via `WindowsIdentity` on startup.
+- It immediately delegates launch to the interactive Windows Explorer shell session (`explorer.exe`) at standard Medium Integrity and cleanly exits the elevated instance.
+
+### 3.3 Self-Contained Standalone Single-File Execution
 DeskGuard packages directly into a standalone self-contained x64 single-file executable (`<PublishSingleFile>true</PublishSingleFile>`, `<SelfContained>true</SelfContained>`).
 - **Full COM & WebView2 Interop**: Includes built-in COM interop support (`BuiltInComInteropSupport=true`), ensuring seamless marshalling for Microsoft Edge WebView2 and Outlook MAPI.
 - **STA Message Pumping**: Uses an active message pump during asynchronous initialization (`WaitForTaskWithPump`) to eliminate thread mode change errors (`RPC_E_CHANGED_MODE`).
-- **No External Dependencies**: Ships with its own optimized runtime, requiring no .NET installation on the host machine.
+- **Zero External Dependencies**: Ships with its own runtime and native libraries, requiring no .NET SDK or runtime installation on the host machine.
 
-### 3.3 Zero-Impact Asynchronous Pipeline
+### 3.4 Zero-Impact Asynchronous Pipeline
 - Live incoming email events (`ItemAdd`) are captured immediately, extracted into immutable POCO records (`EmailRecord`), and handed off to background scoring tasks.
-- The user's Outlook UI is never blocked while threat scoring or DNS lookups are underway.
+- Long-running sweeps and deduplication jobs yield to high-priority live incoming arrivals (`P0`) and user actions (`P1`).
+- The user's Outlook client is never frozen while threat scoring or DNS lookups are underway.
 
-### 3.4 Data Persistence & Concurrency
+### 3.5 Data Persistence & Concurrency
 - Uses an embedded SQLite database configured in **WAL (Write-Ahead Logging)** mode with `synchronous=NORMAL`.
-- Guarantees concurrent reads while the crawler or live watcher writes new email fingerprints.
+- Maintains dedicated read and write connection instances to guarantee concurrent read queries during background crawls without `SQLITE_BUSY` contention.
 
 ---
 
@@ -81,13 +89,19 @@ DeskGuard packages directly into a standalone self-contained x64 single-file exe
    - `OutlookLiveWatcher` catches `ItemAdd` on default Inbox.
    - Dispatches extraction job to `OutlookStaCoordinator`.
    - `OutlookItemAccessor` extracts subject, sender, headers, HTML body, attachments.
-   - `ScoringEngine` processes text heuristics, unwraps SafeLinks, and checks malware hashes.
+   - `ScoringEngine` computes safety score starting from 100.0% minus deductions across 16 detection engines.
    - Result saved to `VaultRepository` (SQLite).
-   - Event posted to `DashboardWindow` via WebView2 bridge and tray balloon notification displayed.
+   - Event posted to `DashboardWindow` via WebView2 bridge (`outlook-scan-update`) and tray balloon notification displayed if flagged.
 
 2. **User Remediation (Quarantine / Delete / Release)**:
    - User triggers action in Dashboard Web UI.
-   - UI calls `window.chrome.webview.postMessage({ action: 'quarantine', ... })`.
+   - UI calls `window.securityApi.quarantineEmail({ entryId, storeId })`.
    - `DashboardWindow` routes command to `OutlookMapiService`.
-   - `OutlookActionsService` moves item via STA coordinator to Target Folder (e.g., Quarantine / Junk).
+   - `OutlookActionsService` moves item via STA coordinator to Target Folder (DeskGuard Quarantine or Junk Email).
    - Local vault status updated and confirmation broadcast back to the frontend.
+
+3. **Mailbox Deduplication**:
+   - User or tray triggers duplicate audit.
+   - `OutlookMailboxCrawler` traverses mail folders via STA coordinator, streaming progress events.
+   - Emails clustered by SHA-256 fingerprint; oldest or prioritized copy elected survivor.
+   - Results persisted in SQLite and surfaced in `ui_duplicates.js` with batch removal options.

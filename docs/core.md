@@ -2,11 +2,12 @@
 
 ## 1. Module Overview
 `DeskGuard.Core` contains all business logic independent of UI and COM interop:
-- Heuristic phishing analysis and multi-factor penalty scoring.
-- Microsoft SafeLinks URL unwrapper.
-- Domain spoofing, cousin-domain, and homograph detection.
-- Hybrid threat intelligence (DNS-based Team Cymru Malware Hash DB + VirusTotal v3).
-- Source-generated JSON serialization context compatible with Native AOT trimming.
+- Heuristic phishing analysis, domain parsing, and multi-engine penalty deduction scoring.
+- Microsoft SafeLinks URL unwrapper (`SafeLinksDecoder`).
+- Domain spoofing, cousin-domain, lookalike typosquatting, and homograph detection.
+- Hybrid threat intelligence (DNS-based Team Cymru Malware Hash DB + VirusTotal v3 REST API).
+- Centralized thread-safe diagnostic file logger (`AppLogger`).
+- Source-generated JSON serialization context compatible with Native AOT trimming (`DeskGuardJsonContext`).
 
 ---
 
@@ -15,25 +16,25 @@
 ```
 src/DeskGuard.Core/
 |-- Concurrency/
-|   |-- JobPriority.cs               # Priority levels (High, Normal, Low, Background)
+|   |-- JobPriority.cs               # Priority levels (P0=Realtime, P1=User, P2=Batch, P3=Idle)
 |   `-- PriorityJobQueue.cs          # Lock-free prioritized asynchronous queue with signals
 |-- Interfaces/
 |   |-- IOutlookMapiService.cs       # Abstraction for Outlook MAPI operations
 |   `-- IVaultRepository.cs          # Abstraction for SQLite persistence and queries
 |-- Logging/
-|   `-- AppLogger.cs                 # Centralized thread-safe file logger (%LocalAppData%\DeskGuard\logs)
+|   `-- AppLogger.cs                 # Centralized thread-safe file logger (%LocalAppData%\DeskGuard\logs\deskguard.log)
 |-- Models/
 |   |-- EmailRecord.cs               # Canonical email entity with score, headers, fingerprint
-|   |-- SecurityVerdict.cs           # Enum: Safe, Suspicious, Malicious, Whitelisted
-|   |-- SecurityPenalty.cs           # Individual scoring deduction record (code, points, reason)
-|   |-- ScanConfiguration.cs         # Heuristic thresholds, API keys, auto-quarantine rules
+|   |-- SecurityVerdict.cs           # Verdict model: Score (0-100), Verdict, Penalties, TotalDeduction
+|   |-- SecurityPenalty.cs           # Individual scoring deduction record (rule, key, points, evidence)
+|   |-- ScanConfiguration.cs         # Engine weights, toggles, thresholds, API keys, whitelists
 |   |-- DuplicateGroup.cs            # Grouping of duplicate emails sharing identity hash
 |   |-- DuplicateItem.cs             # Single instance within a duplicate cluster
 |   |-- SearchParameters.cs          # Query filter criteria for vault lookups
 |   |-- SecurityEvent.cs             # Audit log telemetry model
 |   `-- EngineStats.cs               # Aggregate counters (scanned, safe, quarantined, etc.)
 |-- Scoring/
-|   |-- ScoringEngine.cs             # Master heuristic scoring logic and penalty rules
+|   |-- ScoringEngine.cs             # 16-engine heuristic scoring logic and penalty deductions
 |   |-- SafeLinksDecoder.cs          # Unwraps Microsoft Defender SafeLinks URLs
 |   |-- RegisteredDomainParser.cs    # TLD / effective second-level domain extraction
 |   |-- StringDistance.cs            # Levenshtein / Jaro-Winkler brand similarity scoring
@@ -47,31 +48,56 @@ src/DeskGuard.Core/
 ---
 
 ## 3. Threat Scoring Logic (`ScoringEngine.cs`)
-DeskGuard calculates a risk score from `0.0` (Completely Safe) to `100.0+` (Severe Hazard):
+DeskGuard calculates a **safety score from 100.0% down to 0.0%**:
+- **Baseline**: Every evaluated email starts with a pristine score of **100.0%** (Clean / Safe).
+- **Deductions**: Each failed verification check deducts points based on its configured engine weight.
+- **Score Calculation**:
+  $$\text{Score} = \max(0.0, \min(100.0, \text{round}(100.0 - \text{TotalDeduction})))$$
+- **Dangerous Attachment Override**: If a high-risk executable or script attachment is detected (`DANGEROUS_ATTACHMENT`), the score is immediately capped at a maximum of **10.0%**, guaranteeing a Malicious verdict regardless of SPF/DKIM authentication.
 
-| Trigger / Condition                                 | Penalty Score | Description                                              |
-|-----------------------------------------------------|---------------|----------------------------------------------------------|
-| **High-Risk Attachment Extension** (`.exe`, `.scr`)| +50.0         | Direct executable or installer attached                  |
-| **Dangerous Macro/Script** (`.vbs`, `.js`, `.xlsm`)| +35.0         | Scriptable payload capable of remote execution           |
-| **Cousin / Spoofed Domain**                         | +30.0 - 45.0  | Brand typo-squatting (e.g. `micros0ft.com`, `paypa1.com`)|
-| **Sender / Reply-To Mismatch**                      | +25.0         | Hidden redirection of responses                          |
-| **Urgent Call to Action**                           | +15.0 - 25.0  | "Account suspended", "wire immediately", "password reset"|
-| **Punycode / Homograph Cyrillic Char**              | +35.0         | Lookalike unicode characters mimicking ASCII domains     |
-| **DNS Malware Hash Hit (Team Cymru)**               | +60.0         | Verified malicious attachment hash in global database     |
+### 3.1 The 16 Detection Engines & Default Weights (100 Points Total)
 
-### Verdict Classification:
-- **`0.0 - 29.9`**: Safe (Green)
-- **`30.0 - 64.9`**: Suspicious (Yellow)
-- **`65.0+`**: Malicious / Quarantined (Red)
+| Engine Key | Engine Description | Default Weight | Deduction Trigger & Behavior |
+| :--- | :--- | :---: | :--- |
+| `spf` | **SPF Authorization** | **10 pts** | Full weight on `fail` / `softfail`; half weight on `none`. |
+| `dmarc` | **DMARC Authentication** | **10 pts** | Full weight on policy `fail`; half weight when domain publishes no policy (`none`). |
+| `dkim` | **DKIM Cryptographic Seal** | **5 pts** | Full weight when DKIM signature is missing, broken, or fails verification. |
+| `alignment` | **Sender Envelope Alignment** | **5 pts** | Full weight if From header domain does not match Return-Path bounce domain. |
+| `rdns` | **Reverse DNS (PTR) Verification** | **4 pts** | Full weight if connecting mail server lacks valid reverse DNS or appears dynamic. |
+| `rbl` | **Global Blacklists (RBL)** | **10 pts** | Full weight if sending IP is listed on Spamhaus, SpamCop, or Barracuda. |
+| `body` | **Hidden Text & Body Entropy Shield** | **5 pts** | Full weight if invisible fonts, hidden HTML divs, or zero-pixel text tricks are detected. |
+| `heuristics` | **Smart Scam & Spam Keywords** | **6 pts** | Deducts 1/3 weight per matched phishing/scam keyword (full deduction at 3+ keywords). |
+| `spamflag` | **Upstream Server Spam Flag** | **4 pts** | Full weight if mail hop headers contain `X-Spam-Flag: YES` or Forefront spam marks. |
+| `mime` | **Dangerous MIME Attachments** | **6 pts** | Flags `.exe`, `.js`, `.vbs`, `.bat`, `.iso`, `.scr`, `.lnk` (caps final score at <= 10%). |
+| `msscl` | **Microsoft Spam Score (SCL/BCL)** | **10 pts** | Full weight at SCL 7-9; 70% at SCL 5-6; 50% at Bulk Complaint Level (BCL) 7+. |
+| `linkmismatch`| **Fake Links (SafeLinks Mismatch)** | **8 pts** | 60% weight for 1 deceptive link, 100% for 2+ links where displayed text differs from destination. |
+| `displayspoof`| **Display Name Brand Spoofing** | **7 pts** | Full weight if display name mimics trusted brands (PayPal, Microsoft) but sender domain is unrelated. |
+| `lookalike` | **Look-Alike / Typosquatting Domain**| **5 pts** | Full weight if sender domain is 1-2 edit distance characters from known enterprise brands. |
+| `replyto` | **Replies Go Elsewhere (Reply-To)** | **3 pts** | Full weight if replies redirect to free webmail (Gmail/Outlook.com), half for separate domain. |
+| `firstcontact`| **First-Time Sender Domain** | **2 pts** | Small deduction if recipient has never received mail from this sender domain in search vault. |
+
+### 3.2 Verdict Thresholds
+
+| Score Range | Verdict | UI Status & Styling | Action Taken |
+| :--- | :--- | :--- | :--- |
+| **0.0% – 20.0%** | **Malicious** | Danger (Red) | Automatically isolated to **DeskGuard Quarantine** (or Junk if configured). |
+| **20.1% – 40.0%** | **Spam** | Warning (Orange) | Moved to **Junk Email** folder (or Quarantine). |
+| **40.1% – 55.0%** | **Suspicious**| Attention (Yellow) | Retained in **Inbox**; tagged with Outlook color category `DeskGuard: Suspicious`. |
+| **55.1% – 100.0%**| **Safe** | Clean (Green) | Pristine; untouched in original folder. |
 
 ---
 
 ## 4. Microsoft SafeLinks Decoding (`SafeLinksDecoder.cs`)
 Outlook frequently wraps links in corporate environments:
 `https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fbadsite.com%2F...`
-`SafeLinksDecoder` extracts the target URL before evaluating domain reputation, preventing attackers from bypassing heuristics via Microsoft redirectors.
+`SafeLinksDecoder` unwraps and extracts the true target URL before evaluating domain reputation, ensuring attackers cannot bypass heuristic inspections via Microsoft redirectors.
 
 ---
 
-## 5. Native AOT Compliance Note
-Do NOT use `JsonSerializer.Deserialize<T>(...)` with un-annotated types. Always pass `DeskGuardJsonContext.Default.<Type>` to ensure trimming safety during Native AOT builds.
+## 5. Diagnostic Logging (`AppLogger.cs`)
+All engine decisions, scoring breakdowns, COM activations, and thread operations are persisted by `AppLogger` to `%LOCALAPPDATA%\DeskGuard\logs\deskguard.log` with rolling retention, thread IDs, and timestamp precision.
+
+---
+
+## 6. Native AOT & Trimming Compliance
+Do NOT use `JsonSerializer.Deserialize<T>(...)` with un-annotated types. Always pass `DeskGuardJsonContext.Default.<Type>` to ensure trimming safety during Native AOT and single-file compilation.

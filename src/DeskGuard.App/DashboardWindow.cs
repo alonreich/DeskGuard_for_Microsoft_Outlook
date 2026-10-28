@@ -611,6 +611,8 @@ internal sealed partial class DashboardWindow : IDisposable
                     onAccessEnabled = _config.OnAccessEnabled,
                     historyScanEnabled = _config.HistoryScanEnabled,
                     deepHistoryScanEnabled = _config.DeepHistoryScanEnabled,
+                    historyScanScope = _config.HistoryScanScope,
+                    theme = _config.Theme,
                     onDemandLimit = _config.OnDemandLimit,
                     weights = _config.Weights,
                     toggles = _config.Toggles,
@@ -641,6 +643,7 @@ internal sealed partial class DashboardWindow : IDisposable
                 if (payload.ValueKind is JsonValueKind.True or JsonValueKind.False)
                 {
                     bool enable = payload.GetBoolean();
+                    bool wasEnabled = _config.Enabled;
                     _config.Enabled = enable;
                     _mapiService.UpdateConfiguration(_config);
                     SaveConfig();
@@ -648,14 +651,16 @@ internal sealed partial class DashboardWindow : IDisposable
                     if (enable)
                     {
                         _ = _mapiService.StartLiveWatcherAsync(_cts.Token);
-                        if (_config.HistoryScanEnabled)
+                        if (!wasEnabled && _config.HistoryScanEnabled)
                         {
                             _ = Task.Run(async () =>
                             {
                                 try
                                 {
-                                    DeskGuard.Core.Logging.AppLogger.Info("[Protection Toggle] Active mailbox sweep initiated for past 7 days...");
-                                    await _mapiService.RunSweepAsync(DateTime.UtcNow.AddDays(-7), _cts.Token);
+                                    DateTime since = _config.DeepHistoryScanEnabled ? DateTime.MinValue : DateTime.UtcNow.AddDays(-7);
+                                    string scope = since == DateTime.MinValue ? "all historical items across all folders" : "past 7 days";
+                                    DeskGuard.Core.Logging.AppLogger.Info($"[Protection Toggle] Active mailbox sweep initiated for {scope}...");
+                                    await _mapiService.RunSweepAsync(since, _cts.Token);
                                 }
                                 catch (Exception ex)
                                 {
@@ -741,6 +746,7 @@ internal sealed partial class DashboardWindow : IDisposable
             case "set-scan-modes":
                 if (payload.ValueKind == JsonValueKind.Object)
                 {
+                    bool prevDeep = _config.DeepHistoryScanEnabled;
                     if (payload.TryGetProperty("onAccessEnabled", out var oa))
                     {
                         _config.OnAccessEnabled = oa.GetBoolean();
@@ -748,6 +754,10 @@ internal sealed partial class DashboardWindow : IDisposable
                     if (payload.TryGetProperty("deepHistoryScanEnabled", out var dh))
                     {
                         _config.DeepHistoryScanEnabled = dh.GetBoolean();
+                    }
+                    if (payload.TryGetProperty("historyScanScope", out var hss) && hss.ValueKind == JsonValueKind.String)
+                    {
+                        _config.HistoryScanScope = hss.GetString() ?? "past7days";
                     }
                     if (payload.TryGetProperty("onDemandLimit", out var odl))
                     {
@@ -763,6 +773,22 @@ internal sealed partial class DashboardWindow : IDisposable
                     }
                     _mapiService.UpdateConfiguration(_config);
                     SaveConfig();
+
+                    if (!prevDeep && _config.DeepHistoryScanEnabled && _config.Enabled && _config.HistoryScanEnabled)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                DeskGuard.Core.Logging.AppLogger.Info("[Scan Modes] Deep history crawl enabled: launching full historical sweep...");
+                                await _mapiService.RunSweepAsync(DateTime.MinValue, _cts.Token);
+                            }
+                            catch (Exception ex)
+                            {
+                                DeskGuard.Core.Logging.AppLogger.Error("[Scan Modes] Historical sweep error", ex);
+                            }
+                        });
+                    }
                 }
                 return new { ok = true };
 
@@ -1227,13 +1253,70 @@ internal sealed partial class DashboardWindow : IDisposable
                 SaveConfig();
                 return new { ok = true };
 
+            case "set-theme":
+                if (payload.ValueKind == JsonValueKind.String)
+                {
+                    _config.Theme = payload.GetString() ?? "dark";
+                    SaveConfig();
+                }
+                else if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("theme", out var thProp))
+                {
+                    _config.Theme = thProp.GetString() ?? "dark";
+                    SaveConfig();
+                }
+                return new { ok = true, theme = _config.Theme };
+
+            case "test-vt-key":
+                string testKey = string.Empty;
+                if (payload.ValueKind == JsonValueKind.String)
+                {
+                    testKey = payload.GetString() ?? string.Empty;
+                }
+                else if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("key", out var kp))
+                {
+                    testKey = kp.GetString() ?? string.Empty;
+                }
+                if (string.IsNullOrWhiteSpace(testKey) || testKey == "MASKED_FOR_SECURITY")
+                {
+                    testKey = _config.VtKey;
+                }
+                if (string.IsNullOrWhiteSpace(testKey) || testKey.Trim().Length < 16)
+                {
+                    return new { ok = false, success = false, error = "Please provide a valid 64-character VirusTotal API key." };
+                }
+                try
+                {
+                    var testScan = await CloudThreatService.ScanVirusAsync("275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f", testKey.Trim(), 2, _cts.Token);
+                    return new { ok = true, success = true, message = "VirusTotal API verified successfully." };
+                }
+                catch (Exception ex)
+                {
+                    return new { ok = false, success = false, error = $"Connection check failed: {ex.Message}" };
+                }
+
+            case "restore-defaults":
+                int curWinX = _config.WindowX, curWinY = _config.WindowY, curWinW = _config.WindowWidth, curWinH = _config.WindowHeight;
+                bool curWinMax = _config.WindowMaximized;
+                _config = new ScanConfiguration
+                {
+                    WindowX = curWinX,
+                    WindowY = curWinY,
+                    WindowWidth = curWinW,
+                    WindowHeight = curWinH,
+                    WindowMaximized = curWinMax
+                };
+                _mapiService.UpdateConfiguration(_config);
+                SaveConfig();
+                return new { ok = true, success = true };
+
             case "export-config":
+                var exportPkg = _config.CreateExportPackage();
                 return new
                 {
                     ok = true,
                     success = true,
-                    config = _config,
-                    json = JsonSerializer.Serialize(_config, DeskGuardJsonContext.Default.ScanConfiguration)
+                    config = exportPkg,
+                    json = JsonSerializer.Serialize(exportPkg, DeskGuardJsonContext.Default.ScanConfiguration)
                 };
 
             case "import-config":
@@ -1254,7 +1337,7 @@ internal sealed partial class DashboardWindow : IDisposable
                     }
                     if (importedCfg != null)
                     {
-                        _config = importedCfg;
+                        _config.ImportSettings(importedCfg);
                         _mapiService.UpdateConfiguration(_config);
                         SaveConfig();
                         return new { ok = true, success = true };

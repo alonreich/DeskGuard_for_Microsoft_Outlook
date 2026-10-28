@@ -186,13 +186,15 @@ internal static partial class Program
 
         tray.RequestSweep += () =>
         {
-            DeskGuard.Core.Logging.AppLogger.Info("Mailbox sweep requested from tray.");
-            tray.ShowNotification("Mailbox Sweep", "Scanning items from the past 7 days for threats...");
+            DateTime since = config.DeepHistoryScanEnabled ? DateTime.MinValue : DateTime.UtcNow.AddDays(-7);
+            string desc = since == DateTime.MinValue ? "Scanning all historical mailbox items for threats..." : "Scanning items from the past 7 days for threats...";
+            DeskGuard.Core.Logging.AppLogger.Info($"Mailbox sweep requested from tray ({desc}).");
+            tray.ShowNotification("Mailbox Sweep", desc);
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await mapiService.RunSweepAsync(DateTime.UtcNow.AddDays(-7), cts.Token);
+                    await mapiService.RunSweepAsync(since, cts.Token);
                     tray.ShowNotification("Mailbox Sweep Complete", "Mailbox sweep has finished successfully.");
                 }
                 catch (Exception ex)
@@ -264,8 +266,21 @@ internal static partial class Program
                                 {
                                     try
                                     {
-                                        DeskGuard.Core.Logging.AppLogger.Info("[Watchdog] Triggering startup sweep for past 7 days...");
-                                        await mapiService.RunSweepAsync(DateTime.UtcNow.AddDays(-7), cts.Token);
+                                        DateTime since = (config.HistoryScanScope == "unread")
+                                            ? DateTime.UtcNow.AddDays(-1)
+                                            : DateTime.UtcNow.AddDays(-7);
+                                        string scope = (config.HistoryScanScope == "unread") ? "recent unread items" : "past 7 days";
+                                        DeskGuard.Core.Logging.AppLogger.Info($"[Watchdog] Triggering startup priority sweep for {scope}...");
+                                        await mapiService.RunSweepAsync(since, cts.Token);
+
+                                        // Continue background crawling past 7 days cutoff across older history
+                                        if (config.DeepHistoryScanEnabled || config.HistoryScanScope != "unread")
+                                        {
+                                            DeskGuard.Core.Logging.AppLogger.Info("[Watchdog] Priority sweep complete. Continuing background crawl across remaining older emails...");
+                                            await mapiService.RunSweepAsync(DateTime.MinValue, cts.Token);
+                                            await mapiService.RunCrawlerAsync(cts.Token);
+                                            DeskGuard.Core.Logging.AppLogger.Info("[Watchdog] Complete historical sweep and indexing finished.");
+                                        }
                                     }
                                     catch (Exception ex)
                                     {

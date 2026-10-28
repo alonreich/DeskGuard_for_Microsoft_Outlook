@@ -148,13 +148,28 @@ public sealed partial class VaultRepository
                     }
                 }
 
-                static int KindRank(string k) => (k is "inbox" or "sent") ? 0 : (k == "junk" ? 3 : 1);
+                static int KindRank(string k, string fld)
+                {
+                    string f = (fld ?? "").ToLowerInvariant();
+                    if (k == "inbox" || f.EndsWith("\\inbox") || f == "inbox" || f.Contains("\\inbox\\")) return 1;
+                    if (k == "sent" || f.Contains("sent")) return 2;
+                    if (!f.Contains("deleted") && !f.Contains("trash") && !f.Contains("junk") && 
+                        !f.Contains("spam") && !f.Contains("conflict") && !f.Contains("sync issue"))
+                    {
+                        if (f.Contains("archive")) return 4;
+                        return 3;
+                    }
+                    if (k == "junk" || f.Contains("junk") || f.Contains("spam")) return 10;
+                    if (f.Contains("conflict") || f.Contains("sync issue") || f.Contains("local failure")) return 20;
+                    if (f.Contains("deleted") || f.Contains("trash")) return 99;
+                    return 50;
+                }
 
                 // Rank comparator: lower is better
                 bool IsBetter(RawDupRow a, RawDupRow b)
                 {
-                    int kA = KindRank(a.FolderKind);
-                    int kB = KindRank(b.FolderKind);
+                    int kA = KindRank(a.FolderKind, a.CurrentFolder);
+                    int kB = KindRank(b.FolderKind, b.CurrentFolder);
                     if (kA != kB) return kA < kB;
 
                     int sA = a.StoreId == mainStore ? 0 : 1;

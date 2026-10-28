@@ -188,6 +188,110 @@ window.VirtualList = VirtualList;
 window.incidentVirtualList = null;
 window.currentRenderedCategory = null;
 
+function loadSavedDashColumnWidths() {
+    try {
+        const raw = localStorage.getItem('deskguard_dash_col_widths');
+        if (raw) {
+            const widths = JSON.parse(raw);
+            if (widths && typeof widths === 'object') {
+                for (const [k, v] of Object.entries(widths)) {
+                    if (v) document.documentElement.style.setProperty(`--dash-col-${k}`, v);
+                }
+            }
+        }
+    } catch (e) {}
+}
+
+function saveDashColumnWidth(colKey, widthPx) {
+    try {
+        let widths = {};
+        const raw = localStorage.getItem('deskguard_dash_col_widths');
+        if (raw) widths = JSON.parse(raw) || {};
+        widths[colKey] = `${Math.max(45, widthPx)}px`;
+        localStorage.setItem('deskguard_dash_col_widths', JSON.stringify(widths));
+    } catch (e) {}
+}
+
+function initDashColumnResizers() {
+    const headerEl = document.getElementById('list-header');
+    if (!headerEl || headerEl._resizersInitialized) return;
+    headerEl._resizersInitialized = true;
+    const resizers = headerEl.querySelectorAll('.col-resizer');
+    resizers.forEach(resizer => {
+        resizer.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const colKey = resizer.getAttribute('data-col');
+            const colHeader = resizer.parentElement;
+            const startX = e.pageX;
+            const startWidth = colHeader.offsetWidth;
+
+            resizer.classList.add('resizing');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+
+            function onMouseMove(moveEvent) {
+                const diff = moveEvent.pageX - startX;
+                const newWidth = Math.max(50, startWidth + diff);
+                document.documentElement.style.setProperty(`--dash-col-${colKey}`, `${newWidth}px`);
+            }
+
+            function onMouseUp(upEvent) {
+                const diff = upEvent.pageX - startX;
+                const finalWidth = Math.max(50, startWidth + diff);
+                document.documentElement.style.setProperty(`--dash-col-${colKey}`, `${finalWidth}px`);
+                saveDashColumnWidth(colKey, finalWidth);
+                resizer.classList.remove('resizing');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
+            }
+
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
+    });
+}
+
+loadSavedDashColumnWidths();
+
+window.openIncidentInOutlook = async (item) => {
+    if (!item) return;
+    try {
+        if (typeof window.showNotification === 'function') {
+            window.showNotification("Opening email in Microsoft Outlook...");
+        }
+        const res = await window.securityApi.openEmail({
+            entryId: item.entryId || item.id,
+            storeId: item.storeId || '',
+            fingerprint: item.fingerprint || '',
+            messageId: item.messageId || ''
+        });
+        if (res && (!res.success && !res.ok)) {
+            if (typeof window.showNotification === 'function') {
+                window.showNotification("Could not open in Outlook: " + ((res && res.error) || "Email not found in mailbox."), true);
+            }
+        }
+    } catch (err) {
+        if (typeof window.showNotification === 'function') {
+            window.showNotification("Error launching Outlook: " + err.message, true);
+        }
+    }
+};
+
+window.openForensicsTab = (item) => {
+    if (!item) return;
+    if (typeof window.switchTab === 'function') {
+        window.switchTab('forensics');
+    }
+    if (typeof window.renderForensicsTab === 'function') {
+        window.renderForensicsTab(item);
+    } else if (typeof window.renderForensics === 'function') {
+        window.renderForensics(item);
+    }
+};
+
 function createIncidentRowElement() {
     const div = document.createElement('div');
     div.className = 'list-item incident-grid virtual-row';
@@ -250,6 +354,47 @@ function createIncidentRowElement() {
     scoreEl.style.fontWeight = '700';
     scoreEl.style.textAlign = 'right';
 
+    // 8th cell: 5 Row Action Buttons in requested order:
+    // 1. Open in Outlook, 2. Forensic Report, 3. Virus Total, 4. delete item, 5. Quarantine
+    const actionsEl = document.createElement('div');
+    actionsEl.className = 'row-actions-cell';
+
+    const btnOutlook = document.createElement('button');
+    btnOutlook.type = 'button';
+    btnOutlook.className = 'row-action-btn';
+    btnOutlook.title = 'Open in Outlook';
+    btnOutlook.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Outlook`;
+
+    const btnForensic = document.createElement('button');
+    btnForensic.type = 'button';
+    btnForensic.className = 'row-action-btn';
+    btnForensic.title = 'View Full Forensic Report';
+    btnForensic.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg> Forensic`;
+
+    const btnVt = document.createElement('button');
+    btnVt.type = 'button';
+    btnVt.className = 'row-action-btn';
+    btnVt.title = 'VirusTotal Multi-Engine Threat Audit';
+    btnVt.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg> VirusTotal`;
+
+    const btnDel = document.createElement('button');
+    btnDel.type = 'button';
+    btnDel.className = 'row-action-btn btn-delete';
+    btnDel.title = 'Delete Email from Outlook';
+    btnDel.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete`;
+
+    const btnQuar = document.createElement('button');
+    btnQuar.type = 'button';
+    btnQuar.className = 'row-action-btn btn-quarantine';
+    btnQuar.title = 'Move Email to Quarantine';
+    btnQuar.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg> Quarantine`;
+
+    actionsEl.appendChild(btnOutlook);
+    actionsEl.appendChild(btnForensic);
+    actionsEl.appendChild(btnVt);
+    actionsEl.appendChild(btnDel);
+    actionsEl.appendChild(btnQuar);
+
     div.appendChild(dateEl);
     div.appendChild(timeEl);
     div.appendChild(fromEl);
@@ -257,8 +402,12 @@ function createIncidentRowElement() {
     div.appendChild(subjEl);
     div.appendChild(badgeCol);
     div.appendChild(scoreEl);
+    div.appendChild(actionsEl);
 
-    div._cells = { dateEl, timeEl, fromEl, toEl, subjEl, badgeSpan, movedBadgeSpan, scoreEl };
+    div._cells = {
+        dateEl, timeEl, fromEl, toEl, subjEl, badgeSpan, movedBadgeSpan, scoreEl,
+        btnOutlook, btnForensic, btnVt, btnDel, btnQuar
+    };
     return div;
 }
 
@@ -346,10 +495,34 @@ function updateIncidentRowElement(div, item, index) {
         if (div.classList.contains('active')) div.classList.remove('active');
     }
 
+    // Attach row button actions
+    cells.btnOutlook.onclick = (e) => {
+        e.stopPropagation();
+        window.openIncidentInOutlook(item);
+    };
+    cells.btnForensic.onclick = (e) => {
+        e.stopPropagation();
+        window.openForensicsTab(item);
+    };
+    cells.btnVt.onclick = (e) => {
+        e.stopPropagation();
+        window.cloudScanIncident(item.entryId || item.id);
+    };
+    cells.btnDel.onclick = (e) => {
+        e.stopPropagation();
+        window.deleteIncident(item.entryId || item.id);
+    };
+    cells.btnQuar.onclick = (e) => {
+        e.stopPropagation();
+        window.quarantineIncident(item.entryId || item.id, item.fingerprint);
+    };
+
+    div.ondblclick = () => window.openIncidentInOutlook(item);
     div.onclick = () => window.selectIncident(item);
 }
 
 window.renderList = (items, category, forceResetScroll = false) => {
+    initDashColumnResizers();
     const container = document.getElementById('security-list');
     if (!container) return;
 

@@ -4,9 +4,11 @@
 `DeskGuard.Interop.Outlook` provides robust, crash-resilient communication with the Microsoft Outlook desktop client via its native COM Object Model and MAPI properties.
 
 It solves Outlook COM's fundamental fragility through:
-- **Dedicated STA Thread Isolation**: All COM operations execute on a dedicated message-pump thread.
-- **Safe COM Lifetime (`ComRef<T>`)**: Guaranteed calls to `Marshal.ReleaseComObject` to prevent orphaned Outlook process locks.
-- **Dynamic Property Access (`OutlookItemAccessor`)**: Safely retrieves MAPI properties without throwing exceptions on missing or restricted fields.
+- **Dedicated STA Thread Isolation**: All COM operations execute on a dedicated message-pump thread with active OLE initialization (`OleInitialize` / `OleUninitialize`).
+- **Resilient Multi-Stage COM Acquisition (`ComUtils.CreateOrGetOutlook`)**: Cascading activation strategy avoiding 60-second RPC hangs.
+- **Recursive Inter-Process Named Mutex (`OutlookNamedMutex`)**: Thread-safe recursive locking preventing self-deadlocks and multi-process collisions.
+- **Safe COM Lifetime (`ComRef<T>`)**: Guaranteed cleanup of COM handles via `Marshal.FinalReleaseComObject` in structural wrappers while safeguarding event sinks.
+- **Dynamic Property Access (`OutlookItemAccessor`)**: Resilient retrieval of MAPI properties without throwing exceptions on missing or restricted fields.
 
 ---
 
@@ -15,23 +17,41 @@ It solves Outlook COM's fundamental fragility through:
 ```
 src/DeskGuard.Interop.Outlook/
 |-- Sta/
-|   |-- OutlookStaCoordinator.cs     # Dedicated background STA worker thread with message pump
-|   `-- OutlookNamedMutex.cs         # Inter-process synchronization mutex
+|   |-- OutlookStaCoordinator.cs     # Dedicated background STA worker thread with message pump & job queue
+|   `-- OutlookNamedMutex.cs         # Reentrant inter-process synchronization mutex with recursion tracking
 |-- Com/
-|   |-- ComRef.cs                    # IDisposable wrapper ensuring Marshal.ReleaseComObject
-|   |-- MapiPropertyTags.cs          # Well-known MAPI DASL property tags (Message-ID, Headers)
-|   `-- OutlookItemAccessor.cs       # Resilient wrapper for extracting MailItem metadata
+|   |-- ComRef.cs                    # ComRef<T> struct & ComUtils (multi-tier COM activation & safe release)
+|   |-- MapiPropertyTags.cs          # Well-known MAPI DASL property tags (Message-ID, Headers, SCL, Sender)
+|   `-- OutlookItemAccessor.cs       # Resilient wrapper for extracting MailItem metadata & attachment hashes
 `-- Services/
-    |-- OutlookMapiService.cs        # High-level facade orchestrating all Outlook actions
+    |-- OutlookMapiService.cs        # High-level facade orchestrating all Outlook actions & crawler dispatch
     |-- OutlookLiveWatcher.cs        # Real-time event listener hooking Inbox.ItemAdd
-    |-- OutlookMailboxCrawler.cs     # Recursive folder traverser for historical sweeps & dedupe
-    `-- OutlookActionsService.cs     # Executes folder operations (Quarantine, Move, Delete)
+    |-- OutlookMailboxCrawler.cs     # Recursive folder traverser for historical sweeps & deduplication
+    `-- OutlookActionsService.cs     # Executes folder operations (Quarantine, Release, Move, Delete)
 ```
 
 ---
 
-## 3. The STA Threading Model (`OutlookStaCoordinator.cs`)
-Outlook uses an OLE Single-Threaded Apartment (STA). If a COM interface pointer created on an STA thread is accessed by a thread pool thread without standard OLE marshalling, the call fails with `RPC_E_WRONG_THREAD` (`0x8001010E`).
+## 3. Multi-Stage COM Activation (`ComRef.cs`)
+Connecting to Microsoft Outlook via COM can easily stall if `OUTLOOK.EXE` is busy, starting up, or running under different session parameters. DeskGuard implements a 3-tier acquisition cascade in `ComUtils.CreateOrGetOutlook()`:
+
+1. **Active Running Instance Check (`GetActiveObject`)**:
+   - Resolves CLSID via native `CLSIDFromProgID("Outlook.Application")`.
+   - Queries the Running Object Table (ROT) via `oleaut32.dll` `GetActiveObject`.
+   - If Outlook is already running, attaches instantly without spawning new processes or triggering RPC delay.
+2. **Managed Runtime Activation (`Activator.CreateInstance`)**:
+   - Queries `Type.GetTypeFromProgID("Outlook.Application")`.
+   - Instantiates via managed COM activation with performance timing diagnostics.
+3. **Native CoCreateInstance Fallback (`CoCreateInstance`)**:
+   - Invokes native `ole32.dll` `CoCreateInstance` requesting `CLSCTX_LOCAL_SERVER` with `IID_IUnknown`.
+   - Marshals raw interface pointer via `Marshal.GetObjectForIUnknown`.
+
+Every step records exact HRESULT codes, elapsed milliseconds, and exception messages to `AppLogger` (`%LOCALAPPDATA%\DeskGuard\logs\deskguard.log`).
+
+---
+
+## 4. The STA Threading Model (`OutlookStaCoordinator.cs`)
+Outlook uses an OLE Single-Threaded Apartment (STA). Accessing COM interface pointers from thread pool workers without standard OLE marshalling causes `RPC_E_WRONG_THREAD` (`0x8001010E`) or silent data corruption.
 
 ### Architecture:
 ```
@@ -41,24 +61,34 @@ Outlook uses an OLE Single-Threaded Apartment (STA). If a COM interface pointer 
 [PriorityJobQueue]
        |
        v (Signal)
-[OutlookStaCoordinator (Dedicated Thread)]
-       | Runs Windows Message Loop (Application.Run)
+[OutlookStaCoordinator (Dedicated STA Thread)]
+       | Runs Windows Message Loop (PeekMessage/DispatchMessage)
+       | OLE Initialized (OleInitialize / OleUninitialize)
+       | Reentrant Lock Acquisition (_globalComLock.Acquire(30000))
        v Dispatches job.Work()
-[Microsoft Outlook COM Objects]
+[Microsoft Outlook COM Objects (MAPI)]
 ```
 
-### Best Practices for AI Agents:
-- Never call Outlook COM objects directly from an async continuation or UI event handler.
-- Always use `_coordinator.EnqueueAsync(...)` or call through `OutlookMapiService`, passing caller `CancellationToken`.
-- Background batch scans (crawler, sweeps, deduplication) must periodically call `_coordinator.YieldIfHighPriority(ct)` to allow P0/P1 user operations and live email alerts to preempt long-running loops.
-- Wrap temporary COM objects in `using ComRef<T>` or ensure explicit `Marshal.ReleaseComObject` in `finally` blocks, but never invoke `FinalReleaseComObject` on event sink arguments.
-- Circuit breaker trips due to COM busy/retry-later errors are scoped to background tasks (`P2`/`P3`), preserving real-time `P0` live email arrival processing and `P1` interactive user commands.
+### Critical Concurrency & Mutex Rules:
+- **OLE Apartment Lifecycle**: The coordinator thread calls `OleInitialize` immediately upon starting and `OleUninitialize` upon thread termination.
+- **Recursive Named Mutex (`OutlookNamedMutex`)**: Tracks `_lockCount` to support reentrancy. Nested calls on the same thread increment the lock count without blocking; the underlying OS mutex is released only when `_lockCount` reaches 0.
+- **Extended Lock Timeout (30 Seconds)**: Lock acquisition timeout is set to 30,000ms (`_globalComLock.Acquire(30000)`) to allow intensive folder traversal and bulk operations to complete without false-positive timeouts.
+- **Yielding to High-Priority Work**: Long-running loops (sweeps, deduplication) call `YieldIfHighPriority(ct)`, temporarily relinquishing the COM lock so real-time incoming email arrivals (`P0`) or interactive user commands (`P1`) execute immediately.
+- **Scoped Circuit Breaker**: If COM calls repeatedly fail with busy/retry errors (`0x8001010A`), the circuit breaker trips for background tasks (`P2`/`P3`) only, preserving critical live email monitoring (`P0`) and user remediation (`P1`).
 
 ---
 
-## 4. Real-Time Inbox Watching (`OutlookLiveWatcher.cs`)
-- Connects to Outlook's `GetDefaultFolder(olFolderInbox)`.
-- Retains parent `MAPIFolder` references in `_watchedFolders` for the entire watcher lifetime to anchor the COM event sinks and prevent GC or table detachment.
-- Subscribes to the `Items.ItemAdd` event, extracting `EntryID` and `StoreID`, and immediately releases the item RCW via `ComUtils.Release(item)` in a `finally` block to prevent handle leaks.
-- When fired, checks if the item is a `MailItem`, extracts its `EntryID` and headers, and triggers asynchronous heuristic scoring without blocking Outlook's message handling.
-- Gracefully handles Outlook restarts: if the `OUTLOOK.EXE` process exits, the watcher detects disconnection and automatically re-binds when Outlook restarts.
+## 5. Process Integrity & UAC Constraint
+Windows User Interface Privilege Isolation (UIPI) forbids standard-integrity applications (such as a standard user running `OUTLOOK.EXE`) from accepting COM LPC/RPC automation from elevated (administrator) processes.
+- DeskGuard must run at **Medium Integrity**.
+- If launched with elevated privileges (e.g. following an Inno Setup installation), `Program.cs` automatically detects elevation and re-launches at Medium Integrity via Windows Explorer before initializing COM interop.
+- Watchdog retry loops in `Program.cs` implement a **15-second backoff** upon COM failure to prevent CPU spinning when Outlook is shutting down or updating.
+
+---
+
+## 6. Real-Time Inbox Watching (`OutlookLiveWatcher.cs`)
+- Connects to Outlook's default Inbox (`GetDefaultFolder(olFolderInbox)`).
+- Retains root folder references in `_watchedFolders` for the lifespan of the watcher to anchor COM event sinks and prevent table detachment.
+- Subscribes to `Items.ItemAdd`, extracts `EntryID` and `StoreID`, and immediately releases temporary RCWs in `finally` blocks.
+- When an item arrives, extracts metadata and dispatches asynchronous scoring without stalling Outlook's message handling thread.
+- Automatically handles Outlook restarts: detects process exit and re-binds as soon as Outlook re-launches.

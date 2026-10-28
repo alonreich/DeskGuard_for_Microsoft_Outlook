@@ -272,7 +272,7 @@ window.showConfirmModal = function(title, msg, onExecute, keyword) {
 };
 
 async function requestFullScan() {
-    window.showConfirm("Full Mailbox Audit", "This will perform a deep forensic scan of ALL items in your mailbox. This may take several minutes. Proceed?", "AUDIT", async () => {
+    window.showConfirm("Full Mailbox Audit", "This will perform a deep forensic scan of ALL items in your mailbox across all folders and archives. Depending on mailbox size, this may take several minutes. Proceed?", async () => {
         const btn = document.getElementById('full-scan-btn');
         btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Initializing...`;
         btn.disabled = true;
@@ -376,7 +376,6 @@ api.onScanUpdate(data => {
         btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4l3 3"></path></svg> Full Audit`;
         btn.disabled = false;
         progMini.style.display = 'none';
-        api.setHistoryEnabled(false);
     }
 
     if (data.status === 'THREAT BLOCKED' || data.status === 'SPAM FILTERED' || data.status === 'Finished' || data.status === 'SCANNING' || data.status === 'INFO' || data.status === 'ERROR') {
@@ -612,6 +611,14 @@ async function init() {
         window.AppState.config = cfg;
         if (cfg) {
             window.updatePowerButtonUI(cfg.enabled !== false);
+            if (cfg.theme === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (cfg.theme === 'system') {
+                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (!prefersDark) document.documentElement.setAttribute('data-theme', 'light');
+            } else {
+                document.documentElement.removeAttribute('data-theme');
+            }
         }
         let localCompleted = false;
         try {

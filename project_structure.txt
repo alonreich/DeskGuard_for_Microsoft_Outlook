@@ -69,7 +69,7 @@ DeskGuard_for_Microsoft_Outlook/
 |
 |-- docs/                            # Modular domain documentation (see router above)
 |   |-- architecture.md              # System design, data flow & concurrency models
-|   |-- app.md                       # Windows Forms tray, WebView2 bridge & frontend
+|   |-- app.md                       # Native Win32 tray, WebView2 bridge & frontend
 |   |-- core.md                      # Threat scoring, SafeLinks parser & models
 |   |-- interop.md                   # Outlook MAPI COM interface & STA thread coordinator
 |   |-- data.md                      # SQLite repository, schema migrations & deduplication
