@@ -6,10 +6,13 @@ DeskGuard for Microsoft Outlook - Project Structure & AI Documentation Router
 --------------------------------------------------------------------------------
 1. CHANGE STAGING IS STRICTLY REQUIRED:
    Every code change, architectural modification, bug fix, or feature MUST be
-   immediately staged in `docs/change.md` under the `## [Unreleased]` section.
+   immediately staged in `docs/CHANGELOG.md` (and mirrored in `docs/change.md`) under the `## [Unreleased]` section.
+   Entries MUST record both:
+   a) Detailed Technical Changes: Exact classes, methods, signatures, and low-level mechanics for engineers.
+   b) Plain-English End-User Impact: Clear, non-technical explanation of what changed and why it matters to the user without developer jargon.
    When a release is created (via `Build.cmd`), this section is published as
    the public human-readable changelog / "What's New". DO NOT commit or deliver
-   work without updating `docs/change.md`.
+   work without updating `docs/CHANGELOG.md`.
 
 2. DOCUMENTATION SYNCHRONIZATION:
    AI agents must NEVER modify source code without updating the corresponding
@@ -78,11 +81,11 @@ DeskGuard_for_Microsoft_Outlook/
 |
 |-- src/
 |   |-- DeskGuard.App/               # WinExe host: Tray icon, WebView2 window, wwwroot
-|   |-- DeskGuard.Core/              # Business logic: scoring, SafeLinks, models, intel
-|   |-- DeskGuard.Data/              # Persistence: SQLite, migrations, deduplication
-|   `-- DeskGuard.Interop.Outlook/   # Hardware/COM: Outlook MAPI interop & STA pump
+|   |-- DeskGuard.Core/              # Business logic: scoring, local AV disassembly, SafeLinks, models, intel
+|   |-- DeskGuard.Data/              # Persistence: SQLite, migrations, deduplication, FTS5 search
+|   `-- DeskGuard.Interop.Outlook/   # Hardware/COM: Outlook MAPI interop, STA pump, deep AV crawl
 |
 `-- tests/
-    |-- DeskGuard.Core.Tests/        # Unit tests for scoring engine, domain parsing & DPAPI config
-    `-- DeskGuard.Data.Tests/        # Integration tests for SQLite vault & deduplication
+    |-- DeskGuard.Core.Tests/        # Unit tests for scoring engine, local AV engine, domain parsing & DPAPI config
+    `-- DeskGuard.Data.Tests/        # Integration tests for SQLite vault, FTS5 search operators & deduplication
 ================================================================================

@@ -25,6 +25,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.12] - 2026-10-28
+
+### Added
+- **Zero-Cost Anti-Tamper Authenticode & RSA Manifest Signing (`ssl-certificate/`)**:
+  - Generated offline RSA 3072-bit Code Signing certificate and RSA SHA-256 signing keys in `ssl-certificate/`.
+  - Added `AuthenticodeVerifier.cs` and `SigningConstants.cs` verifying WinVerifyTrust signatures on binaries and cryptographic RSA-SHA256 signature on `update.json.sig`.
+  - Integrated automated binary signing and manifest signing into `Staging.cs` and `InnoInstaller.cs` via `Signing.cs`.
+- **Atomic Rollback & Transactional Deployment Snapshot (`DeploymentLifecycle.cs`)**:
+  - Implemented transactional backup creating timestamped `.bak` files during installation/update overwrites.
+  - Automatically restores backup snapshot and rolls back if file replacement fails, protecting user data and binary integrity.
+- **Graceful Process Termination (`DeploymentLifecycle.cs`)**:
+  - Implemented cooperative window closing via `CloseMainWindow()` / `WM_CLOSE` with timeout before fallback force-kill, ensuring clean SQLite WAL flush and COM unregistration.
+- **Split-Brain Dual Installation Prevention (`DeploymentLifecycle.cs`)**:
+  - Detects existing Program Files installation when standard user declines UAC elevation, preventing fragmented parallel installs in LocalAppData.
+- **Background & Manual Update Engine (`UpdateManager.cs`)**:
+  - Automatic background checks and manual "Check for Updates" in both system tray context menu and Settings Tab 1.
+  - Strict SemVer downgrade guard preventing rollback to older releases.
+  - Verification of Authenticode signature on downloaded installer packages prior to execution.
+- **In-App "What's New" Experience (`#whats-new-modal`)**:
+  - Automatically displays "What's New in DeskGuard" modal on first run after an update, converting changelog into plain-English release highlights.
+  - Accessible on-demand via "What's New" button in Settings Tab 1.
+- **5-Release Installer Binary Retention Policy (`GitRelease.cs`)**:
+  - Enforces FIFO binary retention: retains installer binaries for the 5 latest verified releases, pruning older binaries via `gh release delete-asset` while preserving release notes and git tags.
+- **Database Downgrade Guard & Migration Encapsulation (`VaultMigrationManager.cs`)**:
+  - Guard throws `InvalidOperationException` if SQLite database `user_version` exceeds `CurrentSupportedVersion = 3`, blocking corruption from future schema versions.
+  - Encapsulated 13 startup `ALTER TABLE` statements so they execute only during version upgrades instead of every startup.
+- **Local Antivirus Disassembly & Inspection Engine (`LocalAntivirusService.cs`)**:
+  - Multi-piece email disassembly partitioning emails into sandboxed artifacts: message headers (`headers.txt`), body content (`body.html`), and file attachments (individually extracted and scanned isolated from other email components).
+  - Dual-engine scanning pipeline via Microsoft Defender command-line utility (`MpCmdRun.exe`) and local ClamAV (`clamscan.exe`), streaming real-time stage events (`ProgressChanged`).
+  - Unit tests in `LocalAntivirusServiceTests.cs` verifying path discovery, exit code handling, and disassembly execution.
+- **Deep Local AV Scan Mode (`DeepLocalAvScanAll`)**:
+  - Setting switch in `ScanConfiguration.cs` and `ui_settings.js` ("Scan Every Email with Local Antivirus - No Exceptions").
+  - On-access scan priority (`JobPriority.P0`) for incoming and unread emails; progressive background crawl (`RunDeepAvBackgroundScanAsync`) at lowest priority (`JobPriority.P3`), yielding (`YieldIfHighPriority`) to incoming mail and user operations.
+  - Persistent SQLite tracking (`av_scanned = 1`, `av_verdict`, `av_threat_name`, `av_scanned_at`) with index `idx_emails_av_scanned`, preventing redundant re-scanning of historical items.
+- **FTS5 Search Engine Optimization & Inline Syntax Operators (`VaultRepository.Search.cs`)**:
+  - Advanced search operator parser (`ParseSearchOperators`) supporting `from:`, `to:`, `subject:`, `folder:`, `has:attach`, `has:noattach`, `score:<N`, `score:>N`, `score:<=N`, `score:>=N`, `score:=N`, `is:unread`, `is:read`, `is:malicious`, `is:spam`, `is:suspicious`, `is:clean`, `verdict:`, `after:`, `before:`.
+  - Exact phrase tokenization for multi-word queries in quotes (`"Project Titan"`).
+  - Fast-path execution for operator-only queries executing indexed SQL directly without table scans or broken FTS match attempts.
+  - Unit tests in `VaultRepositoryTests.cs` verifying syntax operator extraction and execution.
+- **Interactive Quick Filter Chips**:
+  - Added filter chips toolbar in `index.html` (`[📎 Attachments]`, `[⚡ Unread]`, `[⚠️ Malicious]`, `[🚫 Spam]`, `[🛡️ Score < 50]`, `[✅ Clean]`) with active toggle states and bidirectional synchronization with the search input.
+- **Sender Domain Trust Badges in From Column**:
+  - Rendered inline visual trust badges in `ui_list.js`: `[⭐ Trusted Org]` (green) for whitelisted/high-reputation senders, `[⚠️ External]` (amber) for external/first-contact senders, and `[🚫 Threat]` (red) for malicious senders, cached by sender key for smooth 60 FPS virtualization scrolling.
+- **Non-Blocking Bottom-Right Toast Notification Stack**:
+  - Replaced single overlay toast with `#toast-container` stack supporting concurrent notifications, severity styling (`.toast-info`, `.toast-success`, `.toast-warning`, `.toast-error`), dismiss buttons, and auto-dismissal.
+- **Keyboard Triage Shortcuts & Cheat Sheet Modal**:
+  - Added keybindings in `ui_list.js`: `J` / `ArrowDown` (next email), `K` / `ArrowUp` (previous email), `Enter` / `O` (open in Outlook focused), `F` (forensic report), `S` (local AV scan), `Q` (quarantine), `D` (delete), `?` (cheat sheet modal).
+  - Added `#keyboard-shortcuts-modal` cheat sheet with styled `<kbd>` keycaps.
+- **Interactive Grabbable Feed Splitter**:
+  - Added `#feed-splitter` horizontal divider between master email table and live security engine feed, allowing drag-to-resize vertical space with an enlarged completion progress bar and clear draggable grip indicator ("▲ ≡≡≡ DRAG TO RESIZE LIVE FEED ≡≡≡ ▼").
+- **Action Column Manual Local AV Scan**:
+  - Added `[🛡️ AV Scan]` button in dashboard incident table and `[Scan AV (Defender & ClamAV)]` button in Forensic Report tab with real-time disassembly and result modal.
+
+### Changed
+- **Single-Row Compact Dashboard Layout**: Compacted statistics cards (`width: 92px`, `padding: 5px 8px`) and search keywords input so all cards (including Clean) and search controls fit on a single horizontal row without wrapping, saving screen real-estate.
+- **Dedicated Search & Clear Buttons**: Added dedicated `[🔍 Search]` and `[✖ Clear]` buttons with Enter key submission.
+- **Draggable Feed Splitter Indicator**: Heightened feed splitter to 16px with clear grab bar.
+- **Thickened Live Security Feed Progress Bar**: Enlarged progress bar to 16px pill container with inline tracking: "X / Y emails (Z left)".
+- **3-Position Discrete Scan Speed Slider**: Background scan speed slider now locks cleanly into 3 discrete positions (Gentle: 10, Balanced: 50, High Throughput: 100) instead of floating between non-distinct values.
+- **Unified SemVer Release Pipeline**: `build/DeskGuard.Build/Program.cs` derives target SemVer once and synchronizes assembly versions, Inno Setup `/DAppVersion`, manifest `update.json`, git tags, and registry `DisplayVersion`.
+- **Strict Git Release Staging**: Replaced `git add -A` with explicit staging of changelog and metadata files; non-zero exit codes during push or release publication fail the build immediately.
+- **Dashboard Table Alignment**: Centered column headers (`.col-header`) and action cells (`.row-actions-cell`) for visual consistency with table data.
+- **Active Directory-Style Settings Tabs**: Enhanced tab button headers with brighter fill and distinct active states; consolidated save buttons to a single bottom "Save Changes" and red "Discard" button; added red "Reset to Defaults" button.
+- **Outlook Window Activation**: Integrated Win32 `AllowSetForegroundWindow(-1)` in `DashboardWindow.cs` ensuring emails opened from DeskGuard pop up focused in the foreground above the dashboard.
+- **Default Engine Weights**: Normalized default engine weights in `ScanConfiguration.cs` from `ScoringEngine.DefaultWeights` guaranteeing a complete 100% distribution across all rules.
+
+### Fixed
+- **Dashboard All Scanned List**: Fixed empty incident list when selecting "All Scanned" card by indexing safe/clean emails into `stats.all` and expanding verdict matching in `VaultRepository.cs`.
+- **Settings Toggle Persistence for Deep Local AV Scan**: Added missing `deepLocalAvScanAll` property to `get-config` payload in `DashboardWindow.cs`, allowing toggle state to persist properly across settings reloads.
+- **Historical Mailbox Scan Depth Setting**: Corrected UI state synchronization for Historical Scan Depth, ensuring toggling and saving updates configuration cleanly.
+- **False Protection Disabled Indicator**: Fixed false "Protection Disabled" status indicator in `ui_main.js` by parsing Outlook status payload structure properly.
+- **Vault Search Scope & From Filter**: Fixed `search-vault` IPC handler in `DashboardWindow.cs` to extract `scope` and pass `fromFilter` properly instead of concatenating into plain query words.
+- **Duplicate Scanner Progress Feedback**: Fixed duplicate scanner progress feedback by connecting `api.onDuplicateUpdate` to stream real-time folder traversal and item discovery in `ui_duplicates.js`.
+---
+
 ## [1.0.11] - 2026-10-28
 
 ### Added
