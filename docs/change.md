@@ -25,6 +25,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.13] - 2026-10-29
+
+### Added
+- **2-Pane Split-Pane Forensics Workspace**:
+  - Independent 2-pane triage workspace inside `#tab-forensics` featuring a left-side triage queue list (width 220px–550px) and a right-side deep diagnostic inspector panel, preserving 100% of dashboard screen space.
+  - Interactive draggable vertical splitter (`#forensics-v-splitter`) with smooth pointer drag tracking and visual feedback.
+  - Triage queue list equipped with category switcher (`All Verdicts`, `Malicious`, `Suspicious`, `Spam`, `Safe`), real-time search filtering, score deduction pill, verdict badge, AV badge, time, and auto-scrolling active selection highlight.
+- **Auto-Advance Conveyor Belt**:
+  - Taking action inside Forensics (`Quarantine` or `Delete`) automatically determines the next email in the queue, performs the backend action, updates `AppState` stats, and seamlessly advances the inspector to the next candidate without hitting dead ends.
+  - Shows notification banner on advancement, or friendly empty-queue notice with auto-return to Dashboard when all queue emails are processed.
+- **Synced Dashboard Highlight on Return**:
+  - Returning to the Dashboard from Forensics (via Back to Dashboard, floating bottom pill, or `Esc` key) synchronizes `AppState.selectedId`, scrolls the virtual list to that exact row, and applies prominent active selection highlighting for continuous spatial context.
+- **Always-Visible Floating Bottom Action Pill**:
+  - Ergonomic centered floating pill with backdrop blur pinned to the bottom of the viewport containing quick actions with clear keyboard shortcuts: `[← Esc Dashboard]`, `[◀ Prev []`, `[X of Y counter]`, `[Next ▶ ]]`, `[✉️ Outlook O]`, `[🛡️ AV Scan S]`, `[⚠️ Quarantine Q]`, and `[🗑️ Delete D]`.
+  - Added bottom padding to inspector content to ensure attachments and payload are never obscured by the floating pill.
+- **Multi-Engine AV Audit Visibility & Badging**:
+  - Added `AvScanned`, `AvVerdict`, and `AvThreatName` properties to `EmailRecord` and mapped them across `VaultRepository` (`GetEmailById`, `GetUnscannedAvEmails`, `GetAllCategorizedEmails`, and full-text/filtered `SearchEmails`).
+  - Added real-time log streaming for every scanned email in `OutlookMapiService` (both progressive background and on-access sweeps) logging subject, sender, engines (`Microsoft Defender & ClamAV`), and verdict (`Clean` or `THREAT DETECTED`) to both `live-log` UI and `AppLogger`.
+  - Added `[🛡️ Clean]` and `[⚠️ AV Threat]` status badges to the main incident list and Forensic Report profile card.
+- **Config-Persistent Dashboard Column Resizing & Borders**:
+  - Added `ColumnWidths` dictionary to `ScanConfiguration` with backend IPC handler `save-column-widths` saving directly to `config.json`.
+  - Added distinct vertical column borders and visible hover/drag grab handles to `.col-resizer` in `.incident-grid.list-header`.
+  - Configured startup column width restoration in `ui_main.js` from `cfg.columnWidths`.
+- **Forensic Report Stepper & Keyboard Navigation (Proposal 3)**:
+  - Added `[◀ Prev]` and `[Next ▶]` stepper buttons to the Forensic Report toolbar showing live queue position (e.g., `Viewing 3 of 18`).
+  - Added full keyboard shortcuts while in Forensics: `Escape` or `Backspace` to instantly return to Dashboard, `[` / `p` / `ArrowLeft` / `ArrowUp` / `k` for previous incident, `]` / `n` / `ArrowRight` / `ArrowDown` / `j` for next incident, `O` to open in Outlook, `S` for local AV scan, `Q` for quarantine, and `D` for delete.
+- **Forensic Report Sticky Section Anchors & Section Cards (Proposal 4)**:
+  - Added sticky anchor navigation bar (`📊 Overview`, `⚖️ Risk Penalties`, `🔍 Transport Headers`, `✉️ Message Body`, `📎 Attachments`) with smooth auto-scroll.
+  - Reorganized forensic report into clean, dedicated section cards with attachments breakdown and a 1-click `📋 Copy Headers` button.
+
+### Changed
+- **Removed Verbose From-Column Text Tags**:
+  - Removed `"⭐ Trusted Org"` and `"⚠️ External"` text badges from the dashboard `From` column cell, preventing text clipping and eliminating layout clutter.
+- **Scan Progress Percentage Layout**:
+  - Moved `#scan-progress-text` to the left of `#scan-progress-bar` before email numeric counts in the live security engine feed.
+
+### Fixed
+- **UI/UX Audit Ranked Issues (Ranks 1-11)**:
+  - **Rank 1**: Fixed keydown filtering in `ui_main.js` to allow full triage shortcuts (`j`, `k`, `Enter`, `o`, `f`, `s`, `q`, `d`, `?`), and updated `handleListKeyNavigation` in `ui_list.js` to invoke existing methods (`openIncidentInOutlook`, `openForensicsTab`, `scanEmailAv`).
+  - **Rank 2**: Fixed `ReferenceError` in `ui_settings.js` where `applyEnginePreset` called non-existent `renderSettings()`; replaced with `sync()` and `markDirty()`.
+  - **Rank 3**: Fixed duplicate DOM ID `vault-search-btn` by renaming Search tab button to `vault-tab-search-btn` and updating `ui_search.js`.
+  - **Rank 4**: Fixed Antivirus scan modal reopening defect by invoking `window.openModal('virustotal-modal')` instead of manually setting `.classList.add('active')` while `display: none` remained set.
+  - **Rank 5**: Synchronized `window.AppState.stats.all` across `deleteIncident`, `releaseIncident`, and `quarantineIncident` in `ui_list.js` so "All Scanned" view updates immediately without page reload.
+  - **Rank 6**: Added `position: sticky` to `.settings-search-bar` and `.settings-tab-nav` in `style.css` so search and tabs remain pinned while scrolling.
+  - **Rank 7**: Added `role="button"`, `tabindex="0"`, `aria-label`, and keyboard Enter/Space activation to sortable `.col-header` elements.
+  - **Rank 8**: Added response validation (`res && (res.ok || res.success)`) to Activity Feed release and trust action handlers in `ui_activity.js`, displaying error states if operations fail.
+  - **Rank 9**: Implemented `modalStack` in `ui_main.js` (`openModal` / `closeModal`) to properly restore parent focus trap handlers and active elements when closing nested modals.
+  - **Rank 10**: Overrode `--ok: #2e7d32;` and `--safe: #2e7d32;` under `[data-theme="light"]` in `style.css` to achieve WCAG AA compliant 5.14:1 contrast ratio.
+  - **Rank 11**: Increased touch and click target sizes for Quick Search `#vault-search-btn` and `#vault-search-clear` to `min-height: 24px; padding: 4px 10px;`.
+---
+
 ## [1.0.12] - 2026-10-28
 
 ### Added
