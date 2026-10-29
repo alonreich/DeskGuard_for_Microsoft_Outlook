@@ -14,8 +14,8 @@ const api = window.securityApi;
 
 window.AppState = {
     currentTab: 'dashboard',
-    currentCategory: 'malicious',
-    stats: { malicious: [], suspicious: [], spam: [], safe: [] },
+    currentCategory: 'all',
+    stats: { all: [], malicious: [], suspicious: [], spam: [], safe: [] },
     // Exact totals from the database. The lists above are capped, so their length is not a count.
     counts: null,
     config: null,
@@ -52,12 +52,14 @@ window.AppState = {
         let list;
         let title;
         if (this.currentCategory === 'all') {
-            list = [
-                ...(this.stats.malicious || []),
-                ...(this.stats.suspicious || []),
-                ...(this.stats.spam || []),
-                ...(this.stats.safe || [])
-            ];
+            list = (this.stats.all && this.stats.all.length > 0)
+                ? this.stats.all
+                : [
+                    ...(this.stats.malicious || []),
+                    ...(this.stats.suspicious || []),
+                    ...(this.stats.spam || []),
+                    ...(this.stats.safe || [])
+                ];
             title = "All Scanned Emails";
         } else {
             list = this.stats[this.currentCategory] || [];
@@ -92,7 +94,19 @@ function switchTab(tabId) {
         
         newTab.classList.add('active');
 
-        if (tabId === 'duplicates') {
+        if (tabId === 'dashboard') {
+            if (window.AppState.selectedId && window.incidentVirtualList && Array.isArray(window.incidentVirtualList.items)) {
+                const idx = window.incidentVirtualList.items.findIndex(i => (i.entryId || i.fingerprint || i.id) === window.AppState.selectedId);
+                if (idx !== -1) {
+                    window.incidentVirtualList.scrollToIndex(idx);
+                }
+                window.incidentVirtualList.refreshCurrentSlice();
+            }
+        } else if (tabId === 'forensics') {
+            if (typeof window.initForensicsWorkspace === 'function') {
+                window.initForensicsWorkspace();
+            }
+        } else if (tabId === 'duplicates') {
             const dupView = document.getElementById('duplicate-view');
             if (dupView && (!dupView.children.length || dupView.innerHTML.trim() === '')) {
                 if (typeof window.renderDuplicateInitialView === 'function') {
@@ -114,16 +128,23 @@ function switchTab(tabId) {
 function switchCategory(cat) {
     const changed = (window.AppState.currentCategory !== cat);
     window.AppState.currentCategory = cat;
+
+    const catSelect = document.getElementById('vault-search-category');
+    if (catSelect) catSelect.value = cat;
+
+    document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'));
+    const activeCard = document.getElementById(`card-${cat}`);
+    if (activeCard) activeCard.classList.add('active');
+
     window.AppState.renderDashboard(changed);
 }
 
-let lastActiveElementBeforeModal = null;
-let activeModalTrapHandler = null;
+let modalStack = [];
 
 function openModal(id) {
     const m = document.getElementById(id);
     if (!m) return;
-    lastActiveElementBeforeModal = document.activeElement;
+    const prevActive = document.activeElement;
     m.style.display = 'flex';
     setTimeout(() => {
         m.classList.add('active');
@@ -134,10 +155,14 @@ function openModal(id) {
         }
     }, 10);
 
-    if (activeModalTrapHandler) {
-        document.removeEventListener('keydown', activeModalTrapHandler);
+    if (modalStack.length > 0) {
+        const top = modalStack[modalStack.length - 1];
+        if (top.trapHandler) {
+            document.removeEventListener('keydown', top.trapHandler);
+        }
     }
-    activeModalTrapHandler = (e) => {
+
+    const trapHandler = (e) => {
         if (e.key !== 'Tab') return;
         const focusable = Array.from(m.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(el => el.offsetParent !== null);
         if (focusable.length === 0) return;
@@ -155,22 +180,35 @@ function openModal(id) {
             }
         }
     };
-    document.addEventListener('keydown', activeModalTrapHandler);
+    document.addEventListener('keydown', trapHandler);
+    modalStack.push({ id, lastActiveElement: prevActive, trapHandler });
 }
 
 function closeModal(id) {
     const m = document.getElementById(id);
     if (!m) return;
-    if (activeModalTrapHandler) {
-        document.removeEventListener('keydown', activeModalTrapHandler);
-        activeModalTrapHandler = null;
+
+    let entry = null;
+    const idx = modalStack.findLastIndex ? modalStack.findLastIndex(e => e.id === id) : modalStack.map(e => e.id).lastIndexOf(id);
+    if (idx !== -1) {
+        entry = modalStack.splice(idx, 1)[0];
+        if (entry.trapHandler) {
+            document.removeEventListener('keydown', entry.trapHandler);
+        }
     }
+
+    if (modalStack.length > 0) {
+        const top = modalStack[modalStack.length - 1];
+        if (top.trapHandler) {
+            document.addEventListener('keydown', top.trapHandler);
+        }
+    }
+
     m.classList.remove('active');
     setTimeout(() => {
         m.style.display = 'none';
-        if (lastActiveElementBeforeModal && typeof lastActiveElementBeforeModal.focus === 'function') {
-            try { lastActiveElementBeforeModal.focus(); } catch (e) {}
-            lastActiveElementBeforeModal = null;
+        if (entry && entry.lastActiveElement && typeof entry.lastActiveElement.focus === 'function') {
+            try { entry.lastActiveElement.focus(); } catch (e) {}
         }
     }, 300);
 }
@@ -342,7 +380,12 @@ window.addLog = (msg) => {
 api.onScanUpdate(data => {
     if (data.item) {
         const item = data.item;
-        const cat = (item.verdict || 'safe').toLowerCase();
+        let cat = (item.verdict || 'safe').toLowerCase();
+        if (cat === 'clean') cat = 'safe';
+        if (!window.AppState.stats.all) window.AppState.stats.all = [];
+        if (!window.AppState.stats.all.some(x => x.entryId === item.entryId)) {
+            window.AppState.stats.all.unshift(item);
+        }
         if (window.AppState.stats[cat]) {
             if (!window.AppState.stats[cat].some(x => x.entryId === item.entryId)) {
                 window.AppState.stats[cat].unshift(item);
@@ -364,6 +407,7 @@ api.onScanUpdate(data => {
     const progMini = document.getElementById('scan-progress-mini');
     const progBar = document.getElementById('scan-progress-bar');
     const progText = document.getElementById('scan-progress-text');
+    const progDetails = document.getElementById('scan-progress-details');
 
     if (data.status === 'SCANNING' || data.status === 'History') {
         if (btn) {
@@ -375,6 +419,10 @@ api.onScanUpdate(data => {
             const pct = Math.round((data.count / data.total) * 100);
             progBar.style.width = pct + '%';
             progText.textContent = pct + '%';
+            if (progDetails) {
+                const remaining = Math.max(0, data.total - data.count);
+                progDetails.textContent = `${data.count.toLocaleString()} / ${data.total.toLocaleString()} emails (${remaining.toLocaleString()} left)`;
+            }
         }
     } else if (data.status === 'Finished' && !data.verdict) {
         if (btn) {
@@ -689,6 +737,13 @@ async function init() {
             } else {
                 document.documentElement.removeAttribute('data-theme');
             }
+            if (cfg.columnWidths && typeof cfg.columnWidths === 'object') {
+                for (const [col, width] of Object.entries(cfg.columnWidths)) {
+                    if (width) {
+                        document.documentElement.style.setProperty(`--dash-col-${col}`, width);
+                    }
+                }
+            }
         }
         let localCompleted = false;
         try {
@@ -810,8 +865,12 @@ init();
 
 const originalOpenForensics = window.openForensics;
 window.openForensics = (item) => {
-    openModal('forensics-modal');
-    if (window.renderForensics) window.renderForensics(item);
+    if (typeof window.openForensicsTab === 'function') {
+        window.openForensicsTab(item);
+    } else {
+        openModal('forensics-modal');
+        if (window.renderForensics) window.renderForensics(item);
+    }
 };
 
 document.addEventListener('keydown', (e) => {
@@ -837,11 +896,67 @@ document.addEventListener('keydown', (e) => {
         e.target.click();
         return;
     }
-    if (window.AppState.currentTab === 'dashboard' && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-        if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    const triageKeys = ['ArrowDown', 'ArrowUp', 'j', 'J', 'k', 'K', 'Enter', 'o', 'O', 'f', 'F', 's', 'S', 'q', 'Q', 'd', 'D', '?', '/'];
+    if (window.AppState.currentTab === 'dashboard' && triageKeys.includes(e.key)) {
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
         if (document.querySelector('.modal-overlay.active')) return;
         if (typeof window.handleListKeyNavigation === 'function') {
             window.handleListKeyNavigation(e);
+        }
+    }
+    if (window.AppState.currentTab === 'forensics') {
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+            if (e.key === 'Escape') {
+                document.activeElement.blur();
+                return;
+            }
+            return;
+        }
+        if (document.querySelector('.modal-overlay.active')) return;
+        if (e.key === 'Escape' || e.key === 'Backspace') {
+            e.preventDefault();
+            window.switchTab('dashboard');
+            return;
+        }
+        if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'K') {
+            e.preventDefault();
+            if (typeof window.forensicsNavigatePrev === 'function') window.forensicsNavigatePrev();
+            return;
+        }
+        if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'J') {
+            e.preventDefault();
+            if (typeof window.forensicsNavigateNext === 'function') window.forensicsNavigateNext();
+            return;
+        }
+        if (e.key === 'ArrowLeft' || e.key === '[' || e.key === 'p' || e.key === 'P') {
+            e.preventDefault();
+            if (typeof window.forensicsNavigatePrev === 'function') window.forensicsNavigatePrev();
+            return;
+        }
+        if (e.key === 'ArrowRight' || e.key === ']' || e.key === 'n' || e.key === 'N') {
+            e.preventDefault();
+            if (typeof window.forensicsNavigateNext === 'function') window.forensicsNavigateNext();
+            return;
+        }
+        if (e.key === 'o' || e.key === 'O') {
+            e.preventDefault();
+            if (typeof window.forensicsOpenInOutlook === 'function') window.forensicsOpenInOutlook();
+            return;
+        }
+        if (e.key === 's' || e.key === 'S') {
+            e.preventDefault();
+            if (typeof window.forensicsScanAv === 'function') window.forensicsScanAv();
+            return;
+        }
+        if (e.key === 'q' || e.key === 'Q') {
+            e.preventDefault();
+            if (typeof window.forensicsQuarantine === 'function') window.forensicsQuarantine();
+            return;
+        }
+        if (e.key === 'd' || e.key === 'D') {
+            e.preventDefault();
+            if (typeof window.forensicsDelete === 'function') window.forensicsDelete();
+            return;
         }
     }
 });
@@ -855,6 +970,7 @@ window.executeVaultSearch = async function() {
     const fromInput = document.getElementById('vault-from-input');
     const scopeSelect = document.getElementById('vault-search-scope');
     const clearBtn = document.getElementById('vault-search-clear');
+    const searchBtn = document.getElementById('vault-search-btn');
 
     const query = searchInput ? searchInput.value.trim() : '';
     const fromFilter = fromInput ? fromInput.value.trim() : '';
@@ -863,7 +979,7 @@ window.executeVaultSearch = async function() {
     const category = categorySelect ? categorySelect.value : 'all';
 
     const hasQuery = query.length > 0 || fromFilter.length > 0;
-    if (clearBtn) clearBtn.style.display = hasQuery ? 'inline-block' : 'none';
+    if (clearBtn) clearBtn.style.display = hasQuery ? 'inline-flex' : 'none';
 
     if (!hasQuery) {
         if (window.vaultSearchActive) {
@@ -874,6 +990,7 @@ window.executeVaultSearch = async function() {
     }
 
     window.vaultSearchActive = true;
+    if (searchBtn) searchBtn.textContent = 'Searching...';
 
     try {
         const sortBy = window.sortOrder ? window.sortOrder.key : 'date';
@@ -900,6 +1017,8 @@ window.executeVaultSearch = async function() {
         }
     } catch (err) {
         console.error('[Vault Search Error]:', err);
+    } finally {
+        if (searchBtn) searchBtn.innerHTML = '<span>🔍</span> Search';
     }
 };
 
@@ -922,12 +1041,29 @@ function initVaultSearchToolbar() {
     const datalist = document.getElementById('from-suggestions');
 
     if (searchInput) {
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                clearTimeout(vaultSearchDebounceTimer);
+                window.executeVaultSearch();
+            }
+        });
         searchInput.addEventListener('input', () => {
             if (typeof window.syncFilterChipStyles === 'function') window.syncFilterChipStyles();
             clearTimeout(vaultSearchDebounceTimer);
             vaultSearchDebounceTimer = setTimeout(() => {
                 window.executeVaultSearch();
             }, 250);
+        });
+    }
+
+    if (fromInput) {
+        fromInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                clearTimeout(vaultSearchDebounceTimer);
+                window.executeVaultSearch();
+            }
         });
     }
 
@@ -1014,8 +1150,184 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         initTitlebarDrag();
         initStatCardsKeyboard();
+        initUpdateSystem();
     });
 } else {
     initTitlebarDrag();
     initStatCardsKeyboard();
+    initUpdateSystem();
+}
+
+// Software Update & What's New System
+window.__latestDownloadUrl = '';
+
+function formatChangelogToHtml(markdown) {
+    if (!markdown) return '<p>No details available.</p>';
+    const lines = markdown.split('\n');
+    let html = '';
+    let inList = false;
+
+    for (let rawLine of lines) {
+        let line = rawLine.trim();
+        if (!line) {
+            if (inList) { html += '</ul>'; inList = false; }
+            continue;
+        }
+
+        if (line.startsWith('## ')) {
+            if (inList) { html += '</ul>'; inList = false; }
+            html += `<h3 style="color: var(--accent); margin: 16px 0 8px 0; font-size: 1.05rem; border-bottom: 1px solid var(--border); padding-bottom: 4px;">${escapeHtml(line.slice(3))}</h3>`;
+        } else if (line.startsWith('### ')) {
+            if (inList) { html += '</ul>'; inList = false; }
+            html += `<h4 style="color: var(--ok); margin: 14px 0 6px 0; font-size: 0.9rem;">${escapeHtml(line.slice(4))}</h4>`;
+        } else if (line.startsWith('- ')) {
+            if (!inList) { html += '<ul style="margin: 0 0 10px 18px; padding: 0;">'; inList = true; }
+            let itemText = line.slice(2);
+            itemText = itemText.replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text);">$1</strong>');
+            itemText = itemText.replace(/`([^`]+)`/g, '<code style="background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 4px; font-size: 0.82em;">$1</code>');
+            html += `<li style="margin-bottom: 5px; color: var(--muted);">${itemText}</li>`;
+        } else {
+            if (inList) { html += '</ul>'; inList = false; }
+            html += `<p style="margin: 0 0 8px 0; color: var(--muted);">${escapeHtml(line)}</p>`;
+        }
+    }
+
+    if (inList) html += '</ul>';
+    return html;
+}
+
+window.showWhatsNewModal = async function() {
+    try {
+        const res = await api.getWhatsNew();
+        if (res) {
+            const verSub = document.getElementById('whats-new-version-sub');
+            if (verSub) verSub.textContent = `DeskGuard v${res.version} - What's New & Security Improvements`;
+            const contentEl = document.getElementById('whats-new-content');
+            if (contentEl) contentEl.innerHTML = formatChangelogToHtml(res.notes);
+            const chkAuto = document.getElementById('chk-auto-check-updates');
+            if (chkAuto && typeof res.autoCheck === 'boolean') chkAuto.checked = res.autoCheck;
+            openModal('whats-new-modal');
+        }
+    } catch (e) {
+        console.error('Error fetching what\'s new:', e);
+    }
+};
+
+window.closeWhatsNewModal = async function() {
+    try {
+        await api.dismissWhatsNew();
+    } catch (e) { }
+    closeModal('whats-new-modal');
+};
+
+window.toggleAutoCheckUpdates = async function(enabled) {
+    try {
+        await api.setAutoCheckUpdates(enabled);
+        const chkModal = document.getElementById('chk-auto-check-updates');
+        if (chkModal) chkModal.checked = enabled;
+        const chkSettings = document.getElementById('cfg-autoupdate');
+        if (chkSettings) chkSettings.checked = enabled;
+        if (typeof showToast === 'function') {
+            showToast(enabled ? 'Automatic update checks enabled.' : 'Automatic update checks disabled.', 'info');
+        }
+    } catch (e) { }
+};
+
+window.manualCheckForUpdates = async function() {
+    const btn = document.getElementById('btn-check-updates-settings');
+    const statusEl = document.getElementById('settings-update-status');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Checking...';
+    }
+    if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'rgba(0, 120, 212, 0.12)';
+        statusEl.style.color = 'var(--accent)';
+        statusEl.style.border = '1px solid var(--accent)';
+        statusEl.textContent = 'Querying GitHub for latest releases...';
+    }
+
+    try {
+        const res = await api.checkForUpdates();
+        if (res && res.hasUpdate) {
+            if (statusEl) {
+                statusEl.style.background = 'rgba(107, 183, 0, 0.15)';
+                statusEl.style.color = 'var(--ok)';
+                statusEl.style.border = '1px solid var(--ok)';
+                statusEl.textContent = `New version v${res.latestVersion} is available!`;
+            }
+            window.showUpdateModal(res);
+        } else if (res && res.error) {
+            if (statusEl) {
+                statusEl.style.background = 'rgba(241, 112, 123, 0.15)';
+                statusEl.style.color = 'var(--danger)';
+                statusEl.style.border = '1px solid var(--danger)';
+                statusEl.textContent = res.error;
+            }
+            if (typeof showToast === 'function') showToast('Update check: ' + res.error, 'warning');
+        } else {
+            if (statusEl) {
+                statusEl.style.background = 'rgba(107, 183, 0, 0.12)';
+                statusEl.style.color = 'var(--ok)';
+                statusEl.style.border = '1px solid var(--ok)';
+                statusEl.textContent = `DeskGuard is up to date (v${res ? res.currentVersion : ''}).`;
+            }
+            if (typeof showToast === 'function') showToast(`DeskGuard is up to date (v${res ? res.currentVersion : ''}).`, 'success');
+        }
+    } catch (err) {
+        if (statusEl) {
+            statusEl.style.background = 'rgba(241, 112, 123, 0.15)';
+            statusEl.style.color = 'var(--danger)';
+            statusEl.style.border = '1px solid var(--danger)';
+            statusEl.textContent = 'Failed to check: ' + err.message;
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Check for Updates';
+        }
+    }
+};
+
+window.showUpdateModal = function(updateData) {
+    if (!updateData) return;
+    const verEl = document.getElementById('update-modal-ver');
+    if (verEl) verEl.textContent = `v${updateData.latestVersion}`;
+    const curEl = document.getElementById('update-modal-cur-ver');
+    if (curEl) curEl.textContent = `v${updateData.currentVersion}`;
+    const notesEl = document.getElementById('update-modal-notes');
+    if (notesEl) notesEl.textContent = updateData.releaseNotes || 'Security maintenance and stability update.';
+    window.__latestDownloadUrl = updateData.downloadUrl || '';
+    openModal('update-available-modal');
+};
+
+window.downloadAndApplyUpdate = function() {
+    if (window.__latestDownloadUrl) {
+        api.openExternalUrl(window.__latestDownloadUrl);
+        closeModal('update-available-modal');
+        if (typeof showToast === 'function') {
+            showToast('Opening update download in your browser...', 'info');
+        }
+    }
+};
+
+function initUpdateSystem() {
+    if (api && api.getWhatsNew) {
+        api.getWhatsNew().then(res => {
+            if (res && res.isFirstRun) {
+                setTimeout(() => window.showWhatsNewModal(), 600);
+            }
+        }).catch(() => {});
+    }
+
+    if (api && api.onUpdateAvailable) {
+        api.onUpdateAvailable(res => {
+            if (res && res.hasUpdate) {
+                if (typeof showToast === 'function') {
+                    showToast(`DeskGuard v${res.latestVersion} is available! Click Settings to update.`, 'info');
+                }
+            }
+        });
+    }
 }

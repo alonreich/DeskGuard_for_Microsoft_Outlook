@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text.Json;
 using System.Threading.Tasks;
+using DeskGuard.Core.Security;
 using Microsoft.Win32;
 
 internal static class DeploymentLifecycle
@@ -70,6 +71,9 @@ internal static class DeploymentLifecycle
         // If not elevated, relaunch with runas to install to Program Files
         if (!IsElevated())
         {
+            string progFilesExe = Path.Combine(DeploymentFootprint.ProgramFilesInstallFolder, DeploymentFootprint.AppExeName);
+            bool existingInProgramFiles = File.Exists(progFilesExe);
+
             ProcessStartInfo psi = new()
             {
                 FileName = Environment.ProcessPath ?? Path.Combine(sourceDir, DeploymentFootprint.AppExeName),
@@ -87,7 +91,14 @@ internal static class DeploymentLifecycle
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"Elevation request declined or failed: {ex.Message}");
-                // Fallback to per-user install without elevation
+                if (existingInProgramFiles)
+                {
+                    Console.Error.WriteLine("[Deployment] An existing installation of DeskGuard was found in Program Files.");
+                    Console.Error.WriteLine("             Administrator permissions are required to update it.");
+                    Console.Error.WriteLine("             Per-user installation aborted to prevent conflicting dual installations.");
+                    return 1;
+                }
+                // Fallback to per-user install without elevation only if no Program Files install exists
                 return RunInstallWorkerDirect(sourceDir, DeploymentFootprint.PerUserInstallFolder, isPerUser: true).GetAwaiter().GetResult();
             }
         }
@@ -107,10 +118,22 @@ internal static class DeploymentLifecycle
     {
         validatedFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         string manifestPath = Path.Combine(sourceDir, "update.json");
+        string sigPath = Path.Combine(sourceDir, "update.json.sig");
 
         if (!File.Exists(manifestPath))
         {
             return false;
+        }
+
+        // Verify cryptographic signature of manifest if present
+        if (File.Exists(sigPath))
+        {
+            if (!AuthenticodeVerifier.VerifyManifestSignature(manifestPath, sigPath))
+            {
+                Console.Error.WriteLine("[Deployment] Security error: update.json RSA cryptographic signature verification failed!");
+                return false;
+            }
+            Console.WriteLine("[Deployment] Verified manifest RSA digital signature.");
         }
 
         try
@@ -158,6 +181,15 @@ internal static class DeploymentLifecycle
                     return false;
                 }
 
+                // Verify Authenticode signature for PE executables if signed
+                if (relPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (AuthenticodeVerifier.VerifyAuthenticodeSignature(fullSourcePath))
+                    {
+                        Console.WriteLine($"[Deployment] Verified Authenticode signature for {relPath}.");
+                    }
+                }
+
                 validatedFiles[relPath] = fullSourcePath;
             }
 
@@ -190,22 +222,95 @@ internal static class DeploymentLifecycle
 
         TerminateRunningAppInstances(targetDir);
 
-        Directory.CreateDirectory(targetDir);
-
-        // Copy files with retry to guarantee reliable overwrites during upgrade
-        foreach (var (relPath, sourceFile) in filesToInstall)
-        {
-            string destFile = Path.Combine(targetDir, relPath);
-            CopyFileWithRetry(sourceFile, destFile);
-        }
+        string backupDir = targetDir.TrimEnd('\\', '/') + ".bak";
+        bool backupCreated = false;
 
         try
         {
-            CopyFileWithRetry(manifestPath, Path.Combine(targetDir, "update.json"));
+            if (Directory.Exists(targetDir) && Directory.EnumerateFileSystemEntries(targetDir).Any())
+            {
+                Console.WriteLine($"[Deployment] Creating pre-update backup snapshot: {backupDir}");
+                TryDeleteDirectory(backupDir);
+                Directory.CreateDirectory(backupDir);
+                foreach (string entry in Directory.GetFiles(targetDir, "*", SearchOption.AllDirectories))
+                {
+                    string rel = Path.GetRelativePath(targetDir, entry);
+                    string dest = Path.Combine(backupDir, rel);
+                    string? d = Path.GetDirectoryName(dest);
+                    if (!string.IsNullOrEmpty(d)) Directory.CreateDirectory(d);
+                    File.Copy(entry, dest, overwrite: true);
+                }
+                backupCreated = true;
+            }
+
+            Directory.CreateDirectory(targetDir);
+
+            // Copy files with retry to guarantee reliable overwrites during upgrade
+            foreach (var (relPath, sourceFile) in filesToInstall)
+            {
+                string destFile = Path.Combine(targetDir, relPath);
+                CopyFileWithRetry(sourceFile, destFile);
+            }
+
+            try
+            {
+                CopyFileWithRetry(manifestPath, Path.Combine(targetDir, "update.json"));
+                string sigPath = Path.Combine(sourceDir, "update.json.sig");
+                if (File.Exists(sigPath))
+                {
+                    CopyFileWithRetry(sigPath, Path.Combine(targetDir, "update.json.sig"));
+                }
+            }
+            catch { }
+
+            // Installation successful: remove backup snapshot
+            if (backupCreated)
+            {
+                TryDeleteDirectory(backupDir);
+            }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Deployment] File replacement failed: {ex.Message}");
+            if (backupCreated && Directory.Exists(backupDir))
+            {
+                Console.Error.WriteLine("[Deployment] Rolling back installation to pre-update snapshot...");
+                try
+                {
+                    foreach (string entry in Directory.GetFiles(backupDir, "*", SearchOption.AllDirectories))
+                    {
+                        string rel = Path.GetRelativePath(backupDir, entry);
+                        string dest = Path.Combine(targetDir, rel);
+                        string? d = Path.GetDirectoryName(dest);
+                        if (!string.IsNullOrEmpty(d)) Directory.CreateDirectory(d);
+                        File.Copy(entry, dest, overwrite: true);
+                    }
+                    Console.Error.WriteLine("[Deployment] Rollback successful. Original installation restored.");
+                }
+                catch (Exception rbEx)
+                {
+                    Console.Error.WriteLine($"[Deployment] Rollback failed: {rbEx.Message}");
+                }
+            }
+            return 3;
+        }
 
         string targetExe = Path.Combine(targetDir, DeploymentFootprint.AppExeName);
+
+        // Read real application version from manifest or assembly
+        string displayVersion = typeof(DeploymentLifecycle).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+        try
+        {
+            if (File.Exists(manifestPath))
+            {
+                using JsonDocument doc = JsonDocument.Parse(File.ReadAllBytes(manifestPath));
+                if (doc.RootElement.TryGetProperty("version", out var vProp) && !string.IsNullOrWhiteSpace(vProp.GetString()))
+                {
+                    displayVersion = vProp.GetString()!;
+                }
+            }
+        }
+        catch { }
 
         // Create shortcuts
         try
@@ -235,7 +340,7 @@ internal static class DeploymentLifecycle
             RegistryKey root = isPerUser ? Registry.CurrentUser : Registry.LocalMachine;
             using RegistryKey key = root.CreateSubKey(DeploymentFootprint.UninstallKeyPath);
             key.SetValue("DisplayName", DeploymentFootprint.DisplayName);
-            key.SetValue("DisplayVersion", "1.0.0");
+            key.SetValue("DisplayVersion", displayVersion);
             key.SetValue("Publisher", DeploymentFootprint.Publisher);
             key.SetValue("InstallLocation", targetDir);
             key.SetValue("DisplayIcon", targetExe);
@@ -360,8 +465,14 @@ internal static class DeploymentLifecycle
                          exePath.StartsWith(DeploymentFootprint.ProgramFilesInstallFolder, StringComparison.OrdinalIgnoreCase) ||
                          exePath.StartsWith(DeploymentFootprint.PerUserInstallFolder, StringComparison.OrdinalIgnoreCase)))
                     {
-                        proc.Kill(entireProcessTree: true);
-                        proc.WaitForExit(5000);
+                        Console.WriteLine($"[Deployment] Notifying existing instance PID {proc.Id} to exit gracefully...");
+                        try { proc.CloseMainWindow(); } catch { }
+                        if (!proc.WaitForExit(3000))
+                        {
+                            Console.WriteLine($"[Deployment] Instance PID {proc.Id} did not exit within timeout. Closing process...");
+                            proc.Kill(entireProcessTree: true);
+                            proc.WaitForExit(3000);
+                        }
                     }
                 }
                 catch { }
@@ -440,6 +551,18 @@ internal static class DeploymentLifecycle
         Console.WriteLine("[Deployment] Uninstallation finished.");
         await Task.CompletedTask;
         return 0;
+    }
+
+    private static void TryDeleteDirectory(string dir)
+    {
+        try
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+        catch { }
     }
 
     private static void ScheduleDirectoryDeleteOnExit(string dir)

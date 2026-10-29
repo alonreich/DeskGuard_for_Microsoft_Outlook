@@ -163,6 +163,12 @@
         scoreEmailWhatIf: data => invoke('score-what-if', data),
         trustSender: sender => invoke('trust-sender', sender),
         saveModalConfig: data => invoke('save-modal-config', data),
-        getModalConfig: id => invoke('get-modal-config', { id })
+        getModalConfig: id => invoke('get-modal-config', { id }),
+        checkForUpdates: () => invoke('check-for-updates'),
+        getWhatsNew: () => invoke('get-whats-new'),
+        dismissWhatsNew: () => invoke('dismiss-whats-new'),
+        openExternalUrl: url => invoke('open-external-url', { url }),
+        setAutoCheckUpdates: enabled => invoke('set-auto-check-updates', { enabled }),
+        onUpdateAvailable: callback => on('update-available', callback)
     };
 })();

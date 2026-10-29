@@ -7,8 +7,18 @@ using Microsoft.Data.Sqlite;
 
 public static class VaultMigrationManager
 {
+    public const long CurrentSupportedVersion = 3;
+
     public static void InitializeAndMigrate(SqliteConnection connection, string dbPath)
     {
+        long userVersion = GetUserVersion(connection);
+        if (userVersion > CurrentSupportedVersion)
+        {
+            throw new InvalidOperationException(
+                $"Database schema version v{userVersion} is newer than this version of DeskGuard (supports up to v{CurrentSupportedVersion}). " +
+                "To protect your data from corruption, operation was halted. Please update DeskGuard to the latest version.");
+        }
+
         using (SqliteCommand cmd = connection.CreateCommand())
         {
             cmd.CommandText = """
@@ -34,8 +44,19 @@ public static class VaultMigrationManager
                     unread INTEGER DEFAULT 0,
                     user_moved INTEGER DEFAULT 0,
                     current_folder TEXT,
+                    message_id TEXT,
+                    hidden INTEGER DEFAULT 0,
+                    folder_kind TEXT,
+                    size INTEGER DEFAULT 0,
+                    av_scanned INTEGER DEFAULT 0,
+                    av_verdict TEXT,
+                    av_threat_name TEXT,
+                    av_scanned_at TEXT,
+                    penalties_json TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE INDEX IF NOT EXISTS idx_emails_av_scanned ON emails(av_scanned);
 
                 CREATE VIRTUAL TABLE IF NOT EXISTS emails_fts USING fts5(
                     subject,
@@ -87,35 +108,38 @@ public static class VaultMigrationManager
             cmd.ExecuteNonQuery();
         }
 
-        // Add optional/new columns if they don't exist
-        string[] optionalColumns =
-        [
-            "ALTER TABLE emails ADD COLUMN user_moved INTEGER DEFAULT 0;",
-            "ALTER TABLE emails ADD COLUMN penalties_json TEXT;",
-            "ALTER TABLE emails ADD COLUMN current_folder TEXT;",
-            "ALTER TABLE emails ADD COLUMN message_id TEXT;",
-            "ALTER TABLE emails ADD COLUMN hidden INTEGER DEFAULT 0;",
-            "ALTER TABLE emails ADD COLUMN attachments TEXT;",
-            "ALTER TABLE emails ADD COLUMN folder_kind TEXT;",
-            "ALTER TABLE emails ADD COLUMN size INTEGER DEFAULT 0;",
-            "ALTER TABLE emails ADD COLUMN av_scanned INTEGER DEFAULT 0;",
-            "ALTER TABLE emails ADD COLUMN av_verdict TEXT;",
-            "ALTER TABLE emails ADD COLUMN av_threat_name TEXT;",
-            "ALTER TABLE emails ADD COLUMN av_scanned_at TEXT;",
-            "CREATE INDEX IF NOT EXISTS idx_emails_av_scanned ON emails(av_scanned);"
-        ];
-
-        foreach (string alter in optionalColumns)
+        // Only run incremental ALTER TABLE migrations on existing databases with older versions
+        if (userVersion < CurrentSupportedVersion)
         {
-            try
+            string[] optionalColumns =
+            [
+                "ALTER TABLE emails ADD COLUMN user_moved INTEGER DEFAULT 0;",
+                "ALTER TABLE emails ADD COLUMN penalties_json TEXT;",
+                "ALTER TABLE emails ADD COLUMN current_folder TEXT;",
+                "ALTER TABLE emails ADD COLUMN message_id TEXT;",
+                "ALTER TABLE emails ADD COLUMN hidden INTEGER DEFAULT 0;",
+                "ALTER TABLE emails ADD COLUMN attachments TEXT;",
+                "ALTER TABLE emails ADD COLUMN folder_kind TEXT;",
+                "ALTER TABLE emails ADD COLUMN size INTEGER DEFAULT 0;",
+                "ALTER TABLE emails ADD COLUMN av_scanned INTEGER DEFAULT 0;",
+                "ALTER TABLE emails ADD COLUMN av_verdict TEXT;",
+                "ALTER TABLE emails ADD COLUMN av_threat_name TEXT;",
+                "ALTER TABLE emails ADD COLUMN av_scanned_at TEXT;",
+                "CREATE INDEX IF NOT EXISTS idx_emails_av_scanned ON emails(av_scanned);"
+            ];
+
+            foreach (string alter in optionalColumns)
             {
-                using SqliteCommand cmd = connection.CreateCommand();
-                cmd.CommandText = alter;
-                cmd.ExecuteNonQuery();
-            }
-            catch
-            {
-                // Column already exists, ignore
+                try
+                {
+                    using SqliteCommand cmd = connection.CreateCommand();
+                    cmd.CommandText = alter;
+                    cmd.ExecuteNonQuery();
+                }
+                catch
+                {
+                    // Column already exists, ignore
+                }
             }
         }
 

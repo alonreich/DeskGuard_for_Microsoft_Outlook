@@ -69,8 +69,11 @@ public sealed partial class ScanConfiguration
     public int WindowHeight { get; set; } = 900;
     public bool WindowMaximized { get; set; } = false;
     public Dictionary<string, string> ModalStates { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> ColumnWidths { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string Theme { get; set; } = "dark"; // "dark", "light", "system"
     public string HistoryScanScope { get; set; } = "past7days"; // "unread", "past7days", "all"
+    public string LastSeenVersion { get; set; } = string.Empty;
+    public bool AutoCheckUpdates { get; set; } = true;
 
     public static string EncryptSecret(string plain)
     {
@@ -222,6 +225,7 @@ public sealed partial class ScanConfiguration
             Theme = this.Theme,
             HistoryScanScope = this.HistoryScanScope,
             DeepLocalAvScanAll = this.DeepLocalAvScanAll,
+            AutoCheckUpdates = this.AutoCheckUpdates,
             VtKey = string.Empty
         };
     }
@@ -251,6 +255,7 @@ public sealed partial class ScanConfiguration
         this.LabelInOutlook = imported.LabelInOutlook;
         if (!string.IsNullOrEmpty(imported.Theme)) this.Theme = imported.Theme;
         if (!string.IsNullOrEmpty(imported.HistoryScanScope)) this.HistoryScanScope = imported.HistoryScanScope;
+        this.AutoCheckUpdates = imported.AutoCheckUpdates;
         if (!string.IsNullOrWhiteSpace(imported.VtKey) && imported.VtKey != "[REDACTED]")
         {
             this.VtKey = imported.VtKey;

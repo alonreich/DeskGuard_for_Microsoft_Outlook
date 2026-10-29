@@ -425,6 +425,7 @@ public sealed partial class VaultRepository
                                    e.date, e.time, e.timestamp, e.body, e.headers, e.verdict, e.score, e.tier,
                                    e.attachments_json, e.attachments, e.unread, e.user_moved, e.current_folder,
                                    e.message_id, e.hidden, e.folder_kind, e.size, e.penalties_json,
+                                   e.av_scanned, e.av_verdict, e.av_threat_name,
                                    snippet(emails_fts, 1, '<mark>', '</mark>', '...', 24) AS snippet
                             FROM emails_fts f JOIN emails e ON f.rowid = e.rowid
                             WHERE {ftsWhere}
@@ -444,7 +445,7 @@ public sealed partial class VaultRepository
                             while (r.Read())
                             {
                                 EmailRecord rec = MapEmailRecord(r, light: true);
-                                rec.Snippet = r.IsDBNull(26) ? string.Empty : r.GetString(26);
+                                rec.Snippet = r.IsDBNull(29) ? string.Empty : r.GetString(29);
                                 rows.Add(rec);
                             }
                         }
@@ -478,7 +479,8 @@ public sealed partial class VaultRepository
                         SELECT id, entry_id, store_id, fingerprint, subject, sender, recipient, cc,
                                date, time, timestamp, body, headers, verdict, score, tier,
                                attachments_json, attachments, unread, user_moved, current_folder,
-                               message_id, hidden, folder_kind, size, penalties_json
+                               message_id, hidden, folder_kind, size, penalties_json,
+                               av_scanned, av_verdict, av_threat_name
                         FROM emails e
                         {whereClause}
                         ORDER BY {orderClause}

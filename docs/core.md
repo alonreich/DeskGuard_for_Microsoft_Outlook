@@ -3,6 +3,7 @@
 ## 1. Module Overview
 `DeskGuard.Core` contains all business logic independent of UI and COM interop:
 - Heuristic phishing analysis, domain parsing, and multi-engine penalty deduction scoring.
+- Multi-piece email disassembly and local antivirus inspection (`LocalAntivirusService`) via Microsoft Defender (`MpCmdRun.exe`) and ClamAV (`clamscan.exe`).
 - Microsoft SafeLinks URL unwrapper (`SafeLinksDecoder`).
 - Domain spoofing, cousin-domain, lookalike typosquatting, and homograph detection.
 - Hybrid threat intelligence (DNS-based Team Cymru Malware Hash DB + VirusTotal v3 REST API).
@@ -42,7 +43,8 @@ src/DeskGuard.Core/
 |-- Serialization/
 |   `-- DeskGuardJsonContext.cs      # Native AOT System.Text.Json source generator context
 `-- Services/
-    `-- CloudThreatService.cs        # DNS-based malware hash lookup (Zero-API) & VirusTotal
+    |-- CloudThreatService.cs        # DNS-based malware hash lookup (Zero-API) & VirusTotal
+    `-- LocalAntivirusService.cs     # Multi-piece email disassembly & local AV scanning (Defender & ClamAV)
 ```
 
 ---
@@ -90,6 +92,8 @@ DeskGuard calculates a **safety score from 100.0% down to 0.0%**:
 - **Sanitized Export**: `ScanConfiguration.CreateExportPackage()` redacts all secrets and host-specific window coordinates prior to exporting backup files.
 - **Safe Import Merge**: `ScanConfiguration.ImportSettings()` safely merges imported engine weights and thresholds without overwriting master power state or machine-specific coordinates.
 - **Scan Scope Control**: Supports `HistoryScanScope` (`"unread"` vs `"all"`) to target only actionable messages during background sweeps.
+- **Deep Local AV Flag (`DeepLocalAvScanAll`)**: Boolean configuration enabling mandatory dual-engine local antivirus scanning across all emails without exception.
+- **Engine Weights Normalization**: Default engine weights map from `ScoringEngine.DefaultWeights` guaranteeing a complete 100% allocation across all heuristic inspection rules.
 
 ---
 
@@ -100,10 +104,24 @@ Outlook frequently wraps links in corporate environments:
 
 ---
 
-## 5. Diagnostic Logging (`AppLogger.cs`)
+## 5. Local Antivirus Disassembly & Multi-Engine Inspection (`LocalAntivirusService.cs`)
+For emails requiring deep malware inspection (when `DeepLocalAvScanAll` is active or safety score is below the safe threshold):
+- **Email Disassembly**: The service extracts the email into isolated sandboxed temporary artifacts:
+  1. `headers.txt`: Raw transport headers.
+  2. `body.html`: Rendered message HTML and plaintext body.
+  3. Individual Attachments: Extracted and scanned as standalone files, completely isolated from each other.
+- **Dual Local Engine Execution**:
+  1. **Microsoft Defender**: Invokes `MpCmdRun.exe -Scan -ScanType 3 -File "<path>"` against candidate locations in ProgramData and Program Files. Exit code 0 indicates clean; exit code 2 indicates threat identified.
+  2. **ClamAV (Optional/Local)**: Invokes `clamscan.exe --no-summary "<path>"` if installed or available on PATH.
+- **Event Streaming**: Dispatches `ProgressChanged` events reporting current step, total steps, active piece, and scanning engine.
+- **Threat Escalation**: If any piece is infected, `OverallVerdict` becomes `"Malicious"`, assigns a 100-point penalty under rule `LOCAL_AV`, records the threat name, and moves the email to Quarantine.
+
+---
+
+## 6. Diagnostic Logging (`AppLogger.cs`)
 All engine decisions, scoring breakdowns, COM activations, and thread operations are persisted by `AppLogger` to `%LOCALAPPDATA%\DeskGuard\logs\deskguard.log` with rolling retention, thread IDs, and timestamp precision.
 
 ---
 
-## 6. Native AOT & Trimming Compliance
+## 7. Native AOT & Trimming Compliance
 Do NOT use `JsonSerializer.Deserialize<T>(...)` with un-annotated types. Always pass `DeskGuardJsonContext.Default.<Type>` to ensure trimming safety during Native AOT and single-file compilation.

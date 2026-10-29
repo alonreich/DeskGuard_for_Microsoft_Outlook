@@ -384,6 +384,9 @@ public sealed class OutlookMapiService : IOutlookMapiService
                         string? threat = report.Pieces.FirstOrDefault(p => p.Verdict == "Infected")?.ThreatName;
                         _vault.RecordAvScanResult(email.EntryId, report.OverallVerdict, threat);
 
+                        string engineSummary = (report.DefenderAvailable && report.ClamAvAvailable) ? "Defender + ClamAV" :
+                            (report.DefenderAvailable ? "Defender" : (report.ClamAvAvailable ? "ClamAV" : "Heuristic"));
+
                         if (report.OverallVerdict == "Malicious")
                         {
                             _vault.RecordEvent(new SecurityEvent
@@ -397,14 +400,18 @@ public sealed class OutlookMapiService : IOutlookMapiService
                                 Score = 0,
                                 ReasonsJson = $"[{{\"Rule\":\"LOCAL_AV\",\"Evidence\":\"{threat ?? "Threat detected by local AV"}\"}}]"
                             });
-                            LogProgress?.Invoke($"[Local AV] Threat detected in background scan on {email.Subject}: {threat}");
+                            string threatMsg = $"[Local AV Background] THREAT DETECTED on '{email.Subject}' (From: {email.Sender}) via {engineSummary}: {threat ?? "Malicious payload"}";
+                            LogProgress?.Invoke(threatMsg);
+                            DeskGuard.Core.Logging.AppLogger.Warn(threatMsg);
+                        }
+                        else
+                        {
+                            string cleanMsg = $"[Local AV Background] Clean: '{email.Subject}' (From: {email.Sender}) via {engineSummary} ({report.Pieces.Count} pieces verified clean)";
+                            LogProgress?.Invoke(cleanMsg);
+                            DeskGuard.Core.Logging.AppLogger.Info(cleanMsg);
                         }
 
                         scannedCount++;
-                        if (scannedCount % 5 == 0)
-                        {
-                            LogProgress?.Invoke($"[Local AV] Progressively scanned {scannedCount} historical emails with Defender & ClamAV.");
-                        }
                     }
                     catch (Exception ex)
                     {
@@ -1299,6 +1306,13 @@ public sealed class OutlookMapiService : IOutlookMapiService
                         string? infectedPieceThreat = avReport.Pieces.FirstOrDefault(p => p.Verdict == "Infected")?.ThreatName;
                         _vault.RecordAvScanResult(record.EntryId, avVerdict, infectedPieceThreat);
 
+                        record.AvScanned = true;
+                        record.AvVerdict = avVerdict;
+                        record.AvThreatName = infectedPieceThreat ?? string.Empty;
+
+                        string engineSummary = (avReport.DefenderAvailable && avReport.ClamAvAvailable) ? "Defender + ClamAV" :
+                            (avReport.DefenderAvailable ? "Defender" : (avReport.ClamAvAvailable ? "ClamAV" : "Heuristic"));
+
                         if (avVerdict == "Malicious")
                         {
                             verdict.Verdict = "Malicious";
@@ -1310,6 +1324,15 @@ public sealed class OutlookMapiService : IOutlookMapiService
                                 Points = 100,
                                 Evidence = $"Local Antivirus detected threat: {infectedPieceThreat ?? "Malicious payload"}"
                             });
+                            string threatMsg = $"[Local AV] THREAT DETECTED on incoming '{record.Subject}' (From: {record.Sender}) via {engineSummary}: {infectedPieceThreat ?? "Malicious payload"}";
+                            LogProgress?.Invoke(threatMsg);
+                            DeskGuard.Core.Logging.AppLogger.Warn(threatMsg);
+                        }
+                        else
+                        {
+                            string cleanMsg = $"[Local AV] Clean: incoming '{record.Subject}' (From: {record.Sender}) via {engineSummary} ({avReport.Pieces.Count} pieces verified clean)";
+                            LogProgress?.Invoke(cleanMsg);
+                            DeskGuard.Core.Logging.AppLogger.Info(cleanMsg);
                         }
                     }
                 }

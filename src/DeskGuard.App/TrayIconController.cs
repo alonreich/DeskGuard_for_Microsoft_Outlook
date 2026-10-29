@@ -20,6 +20,7 @@ internal sealed partial class TrayIconController : IDisposable
     public event Action? RequestOpenDashboard;
     public event Action? RequestSweep;
     public event Action? RequestDuplicateScan;
+    public event Action? RequestCheckUpdates;
     public event Action? RequestExit;
     public event Action? WatchdogTick;
     public string DataDirectory { get; set; } = string.Empty;
@@ -76,7 +77,8 @@ internal sealed partial class TrayIconController : IDisposable
     private const uint MenuRunSweep = 1004;
     private const uint MenuDuplicates = 1005;
     private const uint MenuOpenData = 1006;
-    private const uint MenuExit = 1007;
+    private const uint MenuCheckUpdates = 1007;
+    private const uint MenuExit = 1008;
 
     public const string WindowClassName = "DeskGuard_Tray_WindowClass";
     public const string WindowTitle = "DeskGuard_Tray_Window";
@@ -451,6 +453,7 @@ internal sealed partial class TrayIconController : IDisposable
             AppendMenuW(hMenu, MF_STRING, (UIntPtr)MenuRunSweep, "Run Mailbox Sweep Now");
             AppendMenuW(hMenu, MF_STRING, (UIntPtr)MenuDuplicates, "Scan for Duplicates");
             AppendMenuW(hMenu, MF_STRING, (UIntPtr)MenuOpenData, "Open Data Folder");
+            AppendMenuW(hMenu, MF_STRING, (UIntPtr)MenuCheckUpdates, "Check for Updates...");
             AppendMenuW(hMenu, MF_SEPARATOR, UIntPtr.Zero, string.Empty);
             AppendMenuW(hMenu, MF_STRING, (UIntPtr)MenuExit, "Exit DeskGuard");
 
@@ -470,6 +473,9 @@ internal sealed partial class TrayIconController : IDisposable
                     break;
                 case MenuOpenData:
                     OpenDataFolder();
+                    break;
+                case MenuCheckUpdates:
+                    RequestCheckUpdates?.Invoke();
                     break;
                 case MenuExit:
                     RequestExit?.Invoke();

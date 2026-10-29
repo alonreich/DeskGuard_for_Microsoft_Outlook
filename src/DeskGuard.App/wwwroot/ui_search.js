@@ -142,7 +142,7 @@
     }
 
     function initSearchUI() {
-        const btn = document.getElementById('vault-search-btn');
+        const btn = document.getElementById('vault-tab-search-btn') || document.getElementById('vault-search-btn');
         if (btn) btn.onclick = () => executeSearch(true);
 
         const queryBox = document.getElementById('vault-search-box');

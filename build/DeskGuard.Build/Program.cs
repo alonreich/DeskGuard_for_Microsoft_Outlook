@@ -31,7 +31,7 @@ internal static class Program
 
         try
         {
-            string buildVersion = DateTime.UtcNow.ToString("yyyy.M.d.HHmm");
+            string buildVersion = GitRelease.DetermineTargetVersion(Environment.CurrentDirectory);
             log.Banner("===========================================================");
             log.Banner($"BUILDING DeskGuard for Microsoft Outlook (v{buildVersion})");
             log.Banner("===========================================================");
@@ -93,7 +93,12 @@ internal static class Program
 
             if (!devMode && !stageOnly && !noRelease)
             {
-                GitRelease.PublishToGit(Staging.CompiledExePath, log);
+                if (!GitRelease.PublishToGit(Staging.CompiledExePath, buildVersion, log))
+                {
+                    log.Error("ERROR: Automated Git / GitHub release publication failed.");
+                    log.WriteVerdictAndClose(ExitBuildFailed, DateTimeOffset.Now - started);
+                    return ExitBuildFailed;
+                }
             }
 
             log.Banner("===========================================================");

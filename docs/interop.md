@@ -93,3 +93,28 @@ Windows User Interface Privilege Isolation (UIPI) forbids standard-integrity app
 - **On-Access Scope Restriction**: In live arrival mode (`isLiveArrival`), real-time scoring is applied strictly to unread messages (`mailItem.UnRead`), avoiding redundant re-evaluations of existing read items.
 - **Continuous Historical Crawl**: Startup executes a fast priority sweep followed by a continuous background crawler (`RunCrawlerAsync`) traversing older messages down to `DateTime.MinValue`, preventing scans from stalling at intermediate batch thresholds (e.g., at 525 emails).
 - Automatically handles Outlook restarts: detects process exit and re-binds as soon as Outlook re-launches.
+
+---
+
+## 7. Local Antivirus Scanning & Progressive Mailbox Sweep (`OutlookMapiService.cs`)
+
+### 7.1 On-Access Priority Ingestion (P0)
+When an incoming email arrives:
+- If `DeepLocalAvScanAll` is enabled or the heuristic score is below `Thresholds.SuspiciousThresholdPercent`, the message is disassembled and scanned via `LocalAntivirusService` using Microsoft Defender (`MpCmdRun.exe`) and ClamAV (`clamscan.exe`).
+- Attachments are scanned individually, isolated from the message body and headers.
+- If a threat is detected, the email is immediately rerouted to the Quarantine Threats folder (`OutlookActionsService.GetQuarantineSubfolder`).
+- The scan verdict is stamped in the local SQLite vault (`RecordAvScanResult`).
+
+### 7.2 Progressive Historical AV Sweep (P3)
+When `DeepLocalAvScanAll` is activated:
+- The coordinator initiates `RunDeepAvBackgroundScanAsync` at `JobPriority.P3` (lowest priority).
+- Evaluates batches of unscanned historical emails (`GetUnscannedAvEmails`), scanning headers, body, and extracted attachments.
+- Between email items, the worker calls `_coordinator.YieldIfHighPriority(ct)`, ensuring that live incoming emails (`P0`) and user remediation actions (`P1`) immediately preempt background scanning.
+- Each scanned email is tagged `av_scanned = 1` in SQLite, ensuring no email is ever scanned more than once.
+
+---
+
+## 8. Window Focus & Foreground Activation (`DashboardWindow.cs`)
+When opening an email in Microsoft Outlook:
+- Uses `AllowSetForegroundWindow(-1)` via Win32 interop prior to invoking `mailItem.Display()`.
+- Guarantees the Outlook inspector window pops up focused directly in the foreground above the DeskGuard dashboard.

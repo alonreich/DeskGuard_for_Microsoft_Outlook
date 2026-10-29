@@ -17,9 +17,9 @@ src/DeskGuard.Data/
 |-- VaultRepository.cs               # Core CRUD, statistics aggregation, connection lifecycle
 |-- VaultRepository.Duplicates.cs    # Duplicate detection algorithms, group collation, cleanup
 |-- VaultRepository.Reconciliation.cs# Syncs local records when emails are moved/deleted in Outlook
-|-- VaultRepository.Search.cs        # High-performance search queries with filters & sorting
+|-- VaultRepository.Search.cs        # FTS5 full-text search with inline syntax operators & phrase support
 |-- Migrations/
-|   `-- VaultMigrationManager.cs     # Step-wise schema migration runner with PRAGMA user_version
+|   `-- VaultMigrationManager.cs     # Step-wise schema migration runner with PRAGMA user_version (V3: AV scan status)
 `-- Sqlite/
     `-- SqliteConnectionFactory.cs   # Factory configuring WAL mode, synchronous=NORMAL, timeouts
 ```
@@ -74,3 +74,32 @@ When altering database tables:
 2. Add a migration step checking `PRAGMA user_version`.
 3. Wrap all DDL statements in transactions.
 4. Update `PRAGMA user_version = <new_version>;`.
+
+- **Migration V2**: Configured `emails_fts` FTS5 virtual table and synchronization triggers (`emails_ai`, `emails_ad`, `emails_au`).
+- **Migration V3**: Added local antivirus tracking columns (`av_scanned`, `av_verdict`, `av_threat_name`, `av_scanned_at`) and partial index `idx_emails_av_scanned` on `emails(av_scanned)` for high-speed background crawl lookups.
+
+---
+
+## 6. Full-Text Search (FTS5) & Search Syntax Engine (`VaultRepository.Search.cs`)
+
+### 6.1 Advanced Inline Search Syntax Operators
+The search engine parses inline operator tokens from the user's query and converts them into SQL constraints:
+- `from:<sender>`: Filter sender address or domain.
+- `to:<recipient>`: Filter recipient address.
+- `subject:<text>`: Filter subject line.
+- `folder:<name>`: Filter Outlook folder name.
+- `has:attach` / `has:attachment`: Require email to contain attachments.
+- `has:noattach`: Require email to have no attachments.
+- `score:<op><val>`: Filter by safety score (supports `<`, `<=`, `>`, `>=`, `=`).
+- `is:unread` / `is:read`: Filter read status.
+- `is:malicious` / `is:spam` / `is:suspicious` / `is:clean`: Filter verdict categories.
+- `after:<date>` / `since:<date>`: Received on or after `YYYY-MM-DD`.
+- `before:<date>` / `until:<date>`: Received on or before `YYYY-MM-DD`.
+
+### 6.2 Tokenization & Phrase Matching
+- Quoted multi-word strings (e.g. `"wire transfer"`, `"project titan"`) are tokenized as exact phrase units in SQLite FTS5 rather than broken individual words.
+- Operator-only queries (e.g. `is:malicious has:attach`) skip FTS parsing entirely, executing direct indexed SQLite queries with maximum speed.
+
+### 6.3 Local Antivirus Tracking
+- `RecordAvScanResult(entryId, verdict, threatName)`: Records scan completion and marks `av_scanned = 1`.
+- `GetUnscannedAvEmails(limit)`: Retrieves pending historical emails with `av_scanned = 0` for background progressive scanning.

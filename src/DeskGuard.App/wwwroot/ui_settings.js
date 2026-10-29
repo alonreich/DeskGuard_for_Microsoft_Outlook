@@ -176,6 +176,8 @@ SecurityUI.Settings = (function() {
         const currentIntelLevel = (config.threatIntelligenceLevel !== undefined && config.threatIntelligenceLevel !== null) ? parseInt(config.threatIntelligenceLevel) : 1;
         const currentTheme = config.theme || 'dark';
         const currentScope = config.historyScanScope || (config.deepHistoryScanEnabled ? 'all' : 'past7days');
+        const speedSliderPos = (config.scanningSpeed !== undefined && config.scanningSpeed <= 20) ? 1 : ((config.scanningSpeed !== undefined && config.scanningSpeed >= 80) ? 3 : 2);
+        const speedDisplay = (speedSliderPos === 1) ? 'Gentle (Low CPU)' : ((speedSliderPos === 3) ? 'High Throughput' : 'Balanced');
 
         const body = document.getElementById('settings-body');
         if (!body) return;
@@ -298,17 +300,22 @@ SecurityUI.Settings = (function() {
                         </select>
                     </div>
 
-                    <!-- Scan Speed Slider -->
+                    <!-- Scan Speed Slider (3 Discrete Locked Positions) -->
                     <div class="setting-item-card" style="background: var(--surface-low); padding: 16px 20px; border-radius: 8px; border: 1px solid var(--border);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                             <label for="cfg-speed" style="font-weight: 600; font-size: 0.88rem; color: var(--text); margin: 0;">Background Scan Speed</label>
-                            <span id="speed-display-label" style="font-size: 0.75rem; color: var(--accent); font-weight: 600;">Balanced</span>
+                            <span id="speed-display-label" style="font-size: 0.75rem; color: var(--accent); font-weight: 700;">${speedDisplay}</span>
                         </div>
-                        <input type="range" id="cfg-speed" min="10" max="100" value="${config.scanningSpeed !== undefined ? config.scanningSpeed : 50}" style="width: 100%;" oninput="SecurityUI.Settings.onSpeedInput(this.value)">
-                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); margin-top: 4px;">
-                            <span>Gentle (Low CPU)</span>
-                            <span>Balanced</span>
-                            <span>High Throughput</span>
+                        <input type="range" id="cfg-speed" min="1" max="3" step="1" list="speed-ticks" value="${speedSliderPos}" style="width: 100%; cursor: pointer;" oninput="SecurityUI.Settings.onSpeedInput(this.value)">
+                        <datalist id="speed-ticks">
+                            <option value="1"></option>
+                            <option value="2"></option>
+                            <option value="3"></option>
+                        </datalist>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); margin-top: 6px;">
+                            <span style="cursor: pointer;" onclick="document.getElementById('cfg-speed').value=1; SecurityUI.Settings.onSpeedInput(1);">Gentle (Low CPU)</span>
+                            <span style="cursor: pointer;" onclick="document.getElementById('cfg-speed').value=2; SecurityUI.Settings.onSpeedInput(2);">Balanced</span>
+                            <span style="cursor: pointer;" onclick="document.getElementById('cfg-speed').value=3; SecurityUI.Settings.onSpeedInput(3);">High Throughput</span>
                         </div>
                     </div>
 
@@ -334,6 +341,31 @@ SecurityUI.Settings = (function() {
                                 <span class="slider"></span>
                             </label>
                         </div>
+                    </div>
+
+                    <!-- Software Updates & What's New -->
+                    <div class="setting-item-card" style="background: var(--surface-low); padding: 16px 20px; border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <div>
+                                <div style="font-weight: 600; font-size: 0.88rem; color: var(--text);">Software Updates &amp; What's New</div>
+                                <div style="font-size: 0.75rem; color: var(--muted); margin-top: 2px;">Installed Version: <span id="settings-installed-version" style="font-weight: 700; color: var(--accent);">v1.0.12</span></div>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="button" class="btn-ui" onclick="window.showWhatsNewModal()" style="font-size: 0.78rem; padding: 6px 12px;">What's New</button>
+                                <button type="button" id="btn-check-updates-settings" class="btn-ui" onclick="window.manualCheckForUpdates()" style="font-size: 0.78rem; padding: 6px 12px; font-weight: 600;">Check for Updates</button>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--border);">
+                            <div>
+                                <div style="font-size: 0.8rem; color: var(--text);">Automatic Update Checks</div>
+                                <div style="font-size: 0.72rem; color: var(--muted);">Periodically check for security releases and alert when an update is available</div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="cfg-autoupdate" ${config.autoCheckUpdates !== false ? 'checked' : ''} onchange="window.toggleAutoCheckUpdates(this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div id="settings-update-status" style="display: none; font-size: 0.76rem; padding: 8px 12px; border-radius: 6px;"></div>
                     </div>
                 </div>
             </div>
@@ -588,7 +620,8 @@ SecurityUI.Settings = (function() {
                 const scanScope = document.getElementById('cfg-scan-scope').value;
                 const deepHistoryScan = (scanScope === 'all');
                 const historyScanEnabled = (scanScope !== 'unread');
-                const speedVal = parseInt(document.getElementById('cfg-speed').value, 10);
+                const speedSliderVal = parseInt(document.getElementById('cfg-speed').value, 10);
+                const speedVal = speedSliderVal === 1 ? 10 : (speedSliderVal === 3 ? 100 : 50);
                 const spamDest = document.getElementById('cfg-spam-dest').value;
                 const labelOutlook = document.getElementById('cfg-label-outlook').checked;
                 const vtKeyVal = document.getElementById('cfg-vtkey').value;
@@ -670,9 +703,10 @@ SecurityUI.Settings = (function() {
         const lbl = document.getElementById('speed-display-label');
         if (!lbl) return;
         const n = parseInt(val, 10);
-        if (n <= 30) lbl.textContent = 'Gentle (Low CPU)';
-        else if (n <= 70) lbl.textContent = 'Balanced';
-        else lbl.textContent = 'High Throughput';
+        if (n === 1) lbl.textContent = 'Gentle (Low CPU)';
+        else if (n === 3) lbl.textContent = 'High Throughput';
+        else lbl.textContent = 'Balanced';
+        markDirty();
     }
 
     function toggleVtKeyVisibility() {
@@ -756,7 +790,10 @@ SecurityUI.Settings = (function() {
             window.showNotification(`Applied engine preset: ${preset.toUpperCase()} (Weights & Thresholds updated)`);
         }
         markDirty();
-        renderSettings();
+        const activeTabBefore = activeTab;
+        sync().then(() => {
+            if (activeTabBefore) switchSettingsTab(activeTabBefore);
+        });
     }
 
     function restoreFactoryDefaults() {

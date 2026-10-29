@@ -101,15 +101,26 @@
                             releaseBtn.disabled = true;
                             releaseBtn.textContent = 'Releasing...';
                             try {
-                                await window.securityApi.releaseEmail({
+                                const res = await window.securityApi.releaseEmail({
                                     entryId: ev.entry_id || ev.entryId,
                                     fingerprint: ev.message_key || ev.messageKey || ev.fingerprint
                                 });
-                                releaseBtn.textContent = 'Released';
-                                setTimeout(() => loadActivityFeed(), 800);
+                                if (res && (res.ok || res.success)) {
+                                    releaseBtn.textContent = 'Released';
+                                    setTimeout(() => loadActivityFeed(), 800);
+                                } else {
+                                    releaseBtn.disabled = false;
+                                    releaseBtn.textContent = 'Failed';
+                                    if (typeof window.showNotification === 'function') {
+                                        window.showNotification("Release failed: " + ((res && res.error) || "Could not move email to Inbox."), true);
+                                    }
+                                }
                             } catch (e) {
                                 releaseBtn.disabled = false;
-                                releaseBtn.textContent = 'Release';
+                                releaseBtn.textContent = 'Failed';
+                                if (typeof window.showNotification === 'function') {
+                                    window.showNotification("Release error: " + e.message, true);
+                                }
                             }
                         };
                     }
@@ -120,12 +131,17 @@
                             trustBtn.disabled = true;
                             trustBtn.textContent = 'Trusting...';
                             try {
-                                await window.securityApi.trustSender(ev.sender);
-                                trustBtn.textContent = 'Trusted';
-                                setTimeout(() => loadActivityFeed(), 800);
+                                const res = await window.securityApi.trustSender(ev.sender);
+                                if (res && (res.ok || res.success)) {
+                                    trustBtn.textContent = 'Trusted';
+                                    setTimeout(() => loadActivityFeed(), 800);
+                                } else {
+                                    trustBtn.disabled = false;
+                                    trustBtn.textContent = 'Failed';
+                                }
                             } catch (e) {
                                 trustBtn.disabled = false;
-                                trustBtn.textContent = 'Trust';
+                                trustBtn.textContent = 'Failed';
                             }
                         };
                     }

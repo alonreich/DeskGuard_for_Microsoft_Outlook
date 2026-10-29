@@ -153,6 +153,7 @@ internal static partial class Program
                 full = true,
                 stats = new
                 {
+                    all = categorized.GetValueOrDefault("all", []),
                     malicious = categorized.GetValueOrDefault("malicious", []),
                     suspicious = categorized.GetValueOrDefault("suspicious", []),
                     spam = categorized.GetValueOrDefault("spam", []),
@@ -222,6 +223,42 @@ internal static partial class Program
                 {
                     DeskGuard.Core.Logging.AppLogger.Error("[Tray Duplicate Scan] Error", ex);
                     tray.ShowNotification("Duplicate Scan Error", ex.Message, isWarning: true);
+                }
+            });
+        };
+
+        tray.RequestCheckUpdates += () =>
+        {
+            DeskGuard.Core.Logging.AppLogger.Info("Check for updates requested from tray context menu.");
+            tray.ShowNotification("DeskGuard Updates", "Checking for updates...");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var result = await dashboard.UpdateManager.CheckForUpdatesAsync(manual: true, cts.Token);
+                    if (result.HasUpdate)
+                    {
+                        tray.ShowNotification(
+                            "DeskGuard Update Available",
+                            $"Version {result.LatestVersion} is available! Opening dashboard...");
+                        dashboard.ShowAndFocus();
+                        dashboard.PostEvent("update-available", result);
+                    }
+                    else if (!string.IsNullOrEmpty(result.Error))
+                    {
+                        tray.ShowNotification("Update Check Failed", result.Error, isWarning: true);
+                    }
+                    else
+                    {
+                        tray.ShowNotification(
+                            "DeskGuard is Up to Date",
+                            $"You are running the latest version (v{result.CurrentVersion}).");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DeskGuard.Core.Logging.AppLogger.Error("[Tray Update Check] Error", ex);
+                    tray.ShowNotification("Update Check Error", ex.Message, isWarning: true);
                 }
             });
         };

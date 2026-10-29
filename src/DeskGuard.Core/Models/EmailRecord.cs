@@ -30,4 +30,7 @@ public sealed class EmailRecord
     public string PenaltiesJson { get; set; } = "[]";
     public string UserMovedStory { get; set; } = string.Empty;
     public string Snippet { get; set; } = string.Empty;
+    public bool AvScanned { get; set; }
+    public string AvVerdict { get; set; } = string.Empty;
+    public string AvThreatName { get; set; } = string.Empty;
 }

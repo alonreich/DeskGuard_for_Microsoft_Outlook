@@ -56,6 +56,7 @@ internal static class InnoInstaller
         }
 
         log.Success($"[Installer] {SetupFileName}: {new FileInfo(output).Length / (1024 * 1024)} MB.");
+        Signing.SignBinary(output, log);
         return true;
     }
 

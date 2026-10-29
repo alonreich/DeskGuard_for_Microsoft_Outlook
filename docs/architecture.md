@@ -30,8 +30,10 @@ It is built as a **.NET 9 / C# 13 Self-Contained Standalone** application, requi
 |  +--------------------+         +-----------------------+                         |
 |  |   Scoring Engine   |         |   Vault Repository    |                         |
 |  |  - 16 Rule Deduct  |         |  - SQLite (WAL Mode)  |                         |
-|  |  - SafeLinks Unpack|         |  - Schema Migrations  |                         |
-|  |  - Team Cymru DNS  |         |  - Deduplication Index|                         |
+|  |  - Local AV Disasm |         |  - Schema Migrations  |                         |
+|  |  - Defender/ClamAV |         |  - FTS5 Query Engine  |                         |
+|  |  - SafeLinks Unpack|         |  - Deduplication Index|                         |
+|  |  - Team Cymru DNS  |         |                       |                         |
 |  +--------------------+         +-----------------------+                         |
 |            ^                                                                      |
 |            | (Dispatched Tasks)                                                   |
@@ -81,6 +83,11 @@ DeskGuard packages directly into a standalone self-contained x64 single-file exe
 - Uses an embedded SQLite database configured in **WAL (Write-Ahead Logging)** mode with `synchronous=NORMAL`.
 - Maintains dedicated read and write connection instances to guarantee concurrent read queries during background crawls without `SQLITE_BUSY` contention.
 
+### 3.6 Multi-Stage Local Antivirus Disassembly Pipeline
+- **On-Access Realtime Mode (`P0`)**: Newly arriving unread emails requiring deep inspection are disassembled into sandboxed files (headers, body, individual attachments) and scanned via Microsoft Defender and ClamAV. Threat detections automatically route the message into Quarantine.
+- **Progressive Background Crawler (`P3`)**: When deep AV inspection is enabled across all mail, historical messages are progressively scanned in batches at lowest priority (`P3`), yielding (`YieldIfHighPriority`) to incoming mail and user operations.
+- **Persistent Scan State**: Each completed scan updates `av_scanned = 1` in SQLite, ensuring that upgrading installations or repeating crawls never re-scan previously evaluated items.
+
 ---
 
 ## 4. Key Cross-Module Data Flows
@@ -105,3 +112,9 @@ DeskGuard packages directly into a standalone self-contained x64 single-file exe
    - `OutlookMailboxCrawler` traverses mail folders via STA coordinator, streaming progress events.
    - Emails clustered by composite SHA-256 fingerprint with folder-hierarchy-based survivor election (`Inbox` [Rank 1] > `Sent` [Rank 2] > user folders/archive [Rank 3/4] > `Junk` [Rank 10] > `Conflicts` [Rank 20] > `Deleted Items` [Rank 99]; tie-breaker: oldest `SentUtc`).
    - Results persisted in SQLite and surfaced in `ui_duplicates.js` with visual cluster cards, direct Outlook navigation, and a locked sole survivor protection banner ensuring surviving copies cannot be accidentally checked or deleted during batch actions.
+
+4. **Multi-Piece Local Antivirus Disassembly & Inspection**:
+   - Triggered on-access for incoming mail (`P0`), on-demand via dashboard/forensic action (`P1`), or during progressive background crawl (`P3`).
+   - `LocalAntivirusService` partitions the email into message headers, body HTML, and individually extracted attachments in a sandboxed session folder.
+   - Pieces are scanned sequentially by Microsoft Defender (`MpCmdRun.exe`) and ClamAV (`clamscan.exe`), streaming real-time stage progress (`av-scan-progress`).
+   - Final verdict and detected threats are recorded in SQLite via `RecordAvScanResult`. If malicious, quarantine relocation is executed.

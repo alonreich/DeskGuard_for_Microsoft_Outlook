@@ -66,6 +66,7 @@ StatusExtractFiles=Unpacking DeskGuard for Microsoft Outlook…
 [Files]
 Source: "{#StagingDir}\*"; DestDir: "{tmp}\deskguard"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SignedListDir}\update.json"; DestDir: "{tmp}\deskguard"; Flags: ignoreversion
+Source: "{#SignedListDir}\update.json.sig"; DestDir: "{tmp}\deskguard"; Flags: ignoreversion
 
 [Run]
 Filename: "{tmp}\deskguard\DeskGuard.exe"; Parameters: "--install --smart-update ""{tmp}\deskguard"""; WorkingDir: "{tmp}\deskguard"; StatusMsg: "Starting the DeskGuard installer…"; Flags: waituntilterminated runasoriginaluser

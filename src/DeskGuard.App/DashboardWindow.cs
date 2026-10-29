@@ -33,6 +33,7 @@ internal sealed partial class DashboardWindow : IDisposable
     private readonly VaultRepository _vault;
     private readonly OutlookMapiService _mapiService;
     private readonly ScoringEngine _scoringEngine;
+    private readonly UpdateManager _updateManager;
     private ScanConfiguration _config;
     private readonly string _configFilePath;
     private readonly CancellationTokenSource _cts = new();
@@ -50,6 +51,7 @@ internal sealed partial class DashboardWindow : IDisposable
     private CoreWebView2? _coreWebView;
     private readonly SynchronizationContext? _uiSyncContext;
     private bool _isInitialized;
+    public UpdateManager UpdateManager => _updateManager;
 
     public const string WindowClassName = "DeskGuard_Dashboard_WindowClass";
     public const string WindowTitle = "DeskGuard for Microsoft Outlook";
@@ -234,6 +236,11 @@ internal sealed partial class DashboardWindow : IDisposable
             "data",
             "config.json");
         _scoringEngine = new ScoringEngine();
+        _updateManager = new UpdateManager(_config);
+        _updateManager.UpdateAvailable += result =>
+        {
+            PostEvent("update-available", result);
+        };
         _mapiService.DuplicateProgress += (count, store, folder) =>
         {
             PostEvent("duplicate-update", new { status = "Progress", scanned = count, store = store, currentFolder = folder });
@@ -592,6 +599,7 @@ internal sealed partial class DashboardWindow : IDisposable
                         full = true,
                         stats = new
                         {
+                            all = statsDict.GetValueOrDefault("all", []),
                             malicious = statsDict.GetValueOrDefault("malicious", []),
                             suspicious = statsDict.GetValueOrDefault("suspicious", []),
                             spam = statsDict.GetValueOrDefault("spam", []),
@@ -615,6 +623,7 @@ internal sealed partial class DashboardWindow : IDisposable
                     onAccessEnabled = _config.OnAccessEnabled,
                     historyScanEnabled = _config.HistoryScanEnabled,
                     deepHistoryScanEnabled = _config.DeepHistoryScanEnabled,
+                    deepLocalAvScanAll = _config.DeepLocalAvScanAll,
                     historyScanScope = _config.HistoryScanScope,
                     theme = _config.Theme,
                     onDemandLimit = _config.OnDemandLimit,
@@ -640,7 +649,8 @@ internal sealed partial class DashboardWindow : IDisposable
                     labelInOutlook = _config.LabelInOutlook,
                     vtKey = _config.VtKey,
                     vtApiKey = _config.VtKey,
-                    launchAtStartup = StartupManager.IsStartupEnabled()
+                    launchAtStartup = StartupManager.IsStartupEnabled(),
+                    columnWidths = _config.ColumnWidths
                 };
 
             case "set-enabled":
@@ -834,6 +844,7 @@ internal sealed partial class DashboardWindow : IDisposable
                             full = true,
                             stats = new
                             {
+                                all = statsDict.GetValueOrDefault("all", []),
                                 malicious = statsDict.GetValueOrDefault("malicious", []),
                                 suspicious = statsDict.GetValueOrDefault("suspicious", []),
                                 spam = statsDict.GetValueOrDefault("spam", []),
@@ -1144,12 +1155,17 @@ internal sealed partial class DashboardWindow : IDisposable
                             sender = emailRec.Sender,
                             recipient = emailRec.Recipient,
                             date = emailRec.Date,
+                            time = emailRec.Time,
                             score = emailRec.Score,
                             verdict = emailRec.Verdict,
                             body = emailRec.Body,
                             headers = emailRec.Headers,
                             fullHeaders = emailRec.Headers,
-                            penalties = emailRec.PenaltiesJson
+                            penalties = emailRec.PenaltiesJson,
+                            attachmentsJson = emailRec.AttachmentsJson,
+                            avScanned = emailRec.AvScanned,
+                            avVerdict = emailRec.AvVerdict,
+                            avThreatName = emailRec.AvThreatName
                         };
                     }
                     return (object)new { };
@@ -1349,6 +1365,20 @@ internal sealed partial class DashboardWindow : IDisposable
                 }
                 return new { ok = true, theme = _config.Theme };
 
+            case "save-column-widths":
+                if (payload.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in payload.EnumerateObject())
+                    {
+                        if (prop.Value.ValueKind == JsonValueKind.String)
+                        {
+                            _config.ColumnWidths[prop.Name] = prop.Value.GetString() ?? string.Empty;
+                        }
+                    }
+                    SaveConfig();
+                }
+                return new { ok = true };
+
             case "test-vt-key":
                 string testKey = string.Empty;
                 if (payload.ValueKind == JsonValueKind.String)
@@ -1461,6 +1491,54 @@ internal sealed partial class DashboardWindow : IDisposable
                     }
                 });
                 return new { ok = true };
+
+            case "check-for-updates":
+                var updateRes = await _updateManager.CheckForUpdatesAsync(manual: true, _cts.Token);
+                return new
+                {
+                    hasUpdate = updateRes.HasUpdate,
+                    currentVersion = updateRes.CurrentVersion,
+                    latestVersion = updateRes.LatestVersion,
+                    releaseName = updateRes.ReleaseName,
+                    releaseNotes = updateRes.ReleaseNotes,
+                    downloadUrl = updateRes.DownloadUrl,
+                    publishedAt = updateRes.PublishedAt,
+                    error = updateRes.Error
+                };
+
+            case "get-whats-new":
+                string whatsNewNotes = UpdateManager.GetLocalWhatsNew();
+                bool isFirstRun = string.IsNullOrEmpty(_config.LastSeenVersion) || _config.LastSeenVersion != UpdateManager.CurrentVersionString;
+                return new
+                {
+                    version = UpdateManager.CurrentVersionString,
+                    notes = whatsNewNotes,
+                    isFirstRun = isFirstRun,
+                    autoCheck = _config.AutoCheckUpdates
+                };
+
+            case "dismiss-whats-new":
+                _config.LastSeenVersion = UpdateManager.CurrentVersionString;
+                SaveConfig();
+                return new { ok = true };
+
+            case "open-external-url":
+                string extUrl = payload.ValueKind == JsonValueKind.String ? (payload.GetString() ?? "") : (payload.TryGetProperty("url", out var up) ? up.GetString() ?? "" : "");
+                if (!string.IsNullOrEmpty(extUrl))
+                {
+                    UpdateManager.OpenReleaseUrl(extUrl);
+                }
+                return new { ok = true };
+
+            case "set-auto-check-updates":
+                bool autoCheck = payload.ValueKind == JsonValueKind.True;
+                if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("enabled", out var enP))
+                {
+                    autoCheck = enP.GetBoolean();
+                }
+                _config.AutoCheckUpdates = autoCheck;
+                SaveConfig();
+                return new { ok = true, autoCheck = _config.AutoCheckUpdates };
 
             default:
                 return new { ok = true };
@@ -1593,6 +1671,7 @@ internal sealed partial class DashboardWindow : IDisposable
     public void Dispose()
     {
         _cts.Cancel();
+        _updateManager.Dispose();
         _controller?.Close();
         if (_hwnd != IntPtr.Zero)
         {

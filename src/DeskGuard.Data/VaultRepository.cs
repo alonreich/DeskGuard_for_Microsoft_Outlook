@@ -436,7 +436,8 @@ public sealed partial class VaultRepository : IVaultRepository
                     SELECT id, entry_id, store_id, fingerprint, subject, sender, recipient, cc,
                            date, time, timestamp, body, headers, verdict, score, tier,
                            attachments_json, attachments, unread, user_moved, current_folder,
-                           message_id, hidden, folder_kind, size, penalties_json
+                           message_id, hidden, folder_kind, size, penalties_json,
+                           av_scanned, av_verdict, av_threat_name
                     FROM emails
                     WHERE id = $id OR entry_id = $id OR fingerprint = $id
                     ORDER BY (entry_id = $id) DESC, hidden ASC LIMIT 1;
@@ -501,7 +502,8 @@ public sealed partial class VaultRepository : IVaultRepository
                     SELECT id, entry_id, store_id, fingerprint, subject, sender, recipient, cc,
                            date, time, timestamp, body, headers, verdict, score, tier,
                            attachments_json, attachments, unread, user_moved, current_folder,
-                           message_id, hidden, folder_kind, size, penalties_json
+                           message_id, hidden, folder_kind, size, penalties_json,
+                           av_scanned, av_verdict, av_threat_name
                     FROM emails
                     WHERE (av_scanned IS NULL OR av_scanned = 0)
                       AND (hidden IS NULL OR hidden = 0)
@@ -931,13 +933,13 @@ public sealed partial class VaultRepository : IVaultRepository
                 using SqliteDataReader r = cmd.ExecuteReader();
                 while (r.Read())
                 {
-                    string v = r.GetString(0).ToLowerInvariant();
+                    string v = r.IsDBNull(0) ? string.Empty : r.GetString(0).ToLowerInvariant();
                     int c = r.GetInt32(1);
 
                     if (v.Contains("malicious")) stats.Malicious += c;
                     else if (v.Contains("suspicious")) stats.Suspicious += c;
                     else if (v.Contains("spam")) stats.Spam += c;
-                    else if (v.Contains("safe")) stats.Safe += c;
+                    else stats.Safe += c;
 
                     stats.Total += c;
                 }
@@ -958,27 +960,34 @@ public sealed partial class VaultRepository : IVaultRepository
             ["malicious"] = [],
             ["suspicious"] = [],
             ["spam"] = [],
-            ["safe"] = []
+            ["safe"] = [],
+            ["all"] = []
         };
 
         lock (_readSyncRoot)
         {
             try
             {
-                foreach (string cat in result.Keys)
+                foreach (string cat in new[] { "malicious", "suspicious", "spam", "safe" })
                 {
                     using SqliteCommand cmd = _readConnection!.CreateCommand();
-                    cmd.CommandText = """
+                    string filter = cat switch
+                    {
+                        "safe" => "LOWER(verdict) LIKE '%safe%' OR LOWER(verdict) LIKE '%clean%' OR COALESCE(verdict, '') = ''",
+                        _ => $"LOWER(verdict) LIKE '%{cat}%'"
+                    };
+
+                    cmd.CommandText = $"""
                         SELECT id, entry_id, store_id, fingerprint, subject, sender, recipient, cc,
                                date, time, timestamp, body, headers, verdict, score, tier,
                                attachments_json, attachments, unread, user_moved, current_folder,
-                               message_id, hidden, folder_kind, size, penalties_json
+                               message_id, hidden, folder_kind, size, penalties_json,
+                               av_scanned, av_verdict, av_threat_name
                         FROM emails
-                        WHERE hidden = 0 AND LOWER(verdict) LIKE $cat
+                        WHERE hidden = 0 AND ({filter})
                         ORDER BY date DESC, time DESC
                         LIMIT $limit
                     """;
-                    cmd.Parameters.AddWithValue("$cat", $"%{cat}%");
                     cmd.Parameters.AddWithValue("$limit", limitPerCat);
 
                     List<EmailRecord> catRows = [];
@@ -991,6 +1000,34 @@ public sealed partial class VaultRepository : IVaultRepository
                     }
                     catRows.Reverse();
                     result[cat] = catRows;
+                }
+
+                // Populate "all" category with recent emails across all categories
+                using (SqliteCommand allCmd = _readConnection!.CreateCommand())
+                {
+                    allCmd.CommandText = """
+                        SELECT id, entry_id, store_id, fingerprint, subject, sender, recipient, cc,
+                               date, time, timestamp, body, headers, verdict, score, tier,
+                               attachments_json, attachments, unread, user_moved, current_folder,
+                               message_id, hidden, folder_kind, size, penalties_json,
+                               av_scanned, av_verdict, av_threat_name
+                        FROM emails
+                        WHERE hidden = 0
+                        ORDER BY date DESC, time DESC
+                        LIMIT $limit
+                    """;
+                    allCmd.Parameters.AddWithValue("$limit", limitPerCat * 2);
+
+                    List<EmailRecord> allRows = [];
+                    using (SqliteDataReader r = allCmd.ExecuteReader())
+                    {
+                        while (r.Read())
+                        {
+                            allRows.Add(MapEmailRecord(r, light: true));
+                        }
+                    }
+                    allRows.Reverse();
+                    result["all"] = allRows;
                 }
             }
             catch (Exception ex)
@@ -1077,7 +1114,10 @@ public sealed partial class VaultRepository : IVaultRepository
             FolderKind = r.IsDBNull(23) ? string.Empty : r.GetString(23),
             Size = r.IsDBNull(24) ? 0 : r.GetInt64(24),
             PenaltiesJson = r.IsDBNull(25) ? "[]" : r.GetString(25),
-            UserMovedStory = userMovedStory
+            UserMovedStory = userMovedStory,
+            AvScanned = r.FieldCount > 26 && !r.IsDBNull(26) && r.GetInt32(26) == 1,
+            AvVerdict = r.FieldCount > 27 && !r.IsDBNull(27) ? r.GetString(27) : string.Empty,
+            AvThreatName = r.FieldCount > 28 && !r.IsDBNull(28) ? r.GetString(28) : string.Empty
         };
     }
 

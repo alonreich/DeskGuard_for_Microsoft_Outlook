@@ -83,7 +83,16 @@ internal static class Staging
     public static bool Publish(string outputDir, string buildVersion, BuildLog log)
     {
         log.Info("[Publish] 2. Publishing DeskGuard.App (Self-Contained Standalone Single-File)...");
-        return RunPublish(outputDir, buildVersion, log);
+        bool success = RunPublish(outputDir, buildVersion, log);
+        if (success)
+        {
+            string stagedExe = Path.Combine(outputDir, "DeskGuard.exe");
+            if (File.Exists(stagedExe))
+            {
+                Signing.SignBinary(stagedExe, log);
+            }
+        }
+        return success;
     }
 
     private static bool RunPublish(string outputDir, string buildVersion, BuildLog log)
@@ -151,8 +160,11 @@ internal static class Staging
             writer.WriteEndObject();
         }
 
-        File.WriteAllBytes(Path.Combine(InstallerListDir, "update.json"), ms.ToArray());
+        string manifestPath = Path.Combine(InstallerListDir, "update.json");
+        string sigPath = Path.Combine(InstallerListDir, "update.json.sig");
+        File.WriteAllBytes(manifestPath, ms.ToArray());
         log.Success($"[Manifest] Indexed {files.Count} files in update.json.");
+        Signing.SignManifest(manifestPath, sigPath, log);
         return true;
     }
 

@@ -9,6 +9,7 @@ window.escapeHtml = window.escapeHtml || function(str) {
         .replace(/'/g, '&#039;');
 };
 window.escapeHTML = window.escapeHtml;
+window.sortOrder = window.sortOrder || { key: 'date', asc: false };
 
 class VirtualList {
     constructor(options) {
@@ -190,6 +191,11 @@ window.currentRenderedCategory = null;
 
 function loadSavedDashColumnWidths() {
     try {
+        if (window.AppState && window.AppState.config && window.AppState.config.columnWidths) {
+            for (const [k, v] of Object.entries(window.AppState.config.columnWidths)) {
+                if (v) document.documentElement.style.setProperty(`--dash-col-${k}`, v);
+            }
+        }
         const raw = localStorage.getItem('deskguard_dash_col_widths');
         if (raw) {
             const widths = JSON.parse(raw);
@@ -209,6 +215,11 @@ function saveDashColumnWidth(colKey, widthPx) {
         if (raw) widths = JSON.parse(raw) || {};
         widths[colKey] = `${Math.max(45, widthPx)}px`;
         localStorage.setItem('deskguard_dash_col_widths', JSON.stringify(widths));
+        if (window.securityApi && typeof window.securityApi.saveColumnWidths === 'function') {
+            window.securityApi.saveColumnWidths(widths);
+        } else if (window.api && typeof window.api.saveColumnWidths === 'function') {
+            window.api.saveColumnWidths(widths);
+        }
     } catch (e) {}
 }
 
@@ -349,6 +360,11 @@ function createIncidentRowElement() {
     badgeSpan.className = 'badge';
     badgeCol.appendChild(badgeSpan);
 
+    const avBadgeSpan = document.createElement('span');
+    avBadgeSpan.className = 'badge';
+    avBadgeSpan.style.display = 'none';
+    badgeCol.appendChild(avBadgeSpan);
+
     const movedBadgeSpan = document.createElement('span');
     movedBadgeSpan.className = 'badge badge-user-moved';
     movedBadgeSpan.style.display = 'none';
@@ -412,7 +428,7 @@ function createIncidentRowElement() {
     div.appendChild(actionsEl);
 
     div._cells = {
-        dateEl, timeEl, fromEl, toEl, subjEl, badgeSpan, movedBadgeSpan, scoreEl,
+        dateEl, timeEl, fromEl, toEl, subjEl, badgeSpan, avBadgeSpan, movedBadgeSpan, scoreEl,
         btnOutlook, btnForensic, btnVt, btnDel, btnQuar
     };
     return div;
@@ -439,24 +455,17 @@ function updateIncidentRowElement(div, item, index) {
     if (cells.timeEl.textContent !== timeStr) cells.timeEl.textContent = timeStr;
 
     const fromText = item.sender || item.from || 'Unknown';
-    let trustBadgeHtml = '';
+    let threatBadgeHtml = '';
     const vLower = (item.verdict || '').toLowerCase();
     const scoreVal = typeof item.score === 'number' ? item.score : 100;
-    const isWhitelisted = window.AppState && window.AppState.config && Array.isArray(window.AppState.config.whitelist) &&
-        window.AppState.config.whitelist.some(w => fromText.toLowerCase().includes(w.toLowerCase()));
-
     if (vLower.includes('malicious') || scoreVal < 30) {
-        trustBadgeHtml = '<span class="trust-badge-threat" title="High Threat Sender">🚫 Threat</span>';
-    } else if (isWhitelisted || scoreVal >= 90) {
-        trustBadgeHtml = '<span class="trust-badge-org" title="Trusted Sender / Known Organization">⭐ Trusted Org</span>';
-    } else {
-        trustBadgeHtml = '<span class="trust-badge-ext" title="External Domain / First Contact">⚠️ External</span>';
+        threatBadgeHtml = '<span class="trust-badge-threat" title="High Threat Sender">🚫 Threat</span> ';
     }
 
-    const currentFromKey = `${trustBadgeHtml}:${fromText}`;
+    const currentFromKey = `${threatBadgeHtml}:${fromText}`;
     if (cells.fromEl._lastKey !== currentFromKey) {
         cells.fromEl._lastKey = currentFromKey;
-        cells.fromEl.innerHTML = `${trustBadgeHtml}<span>${window.escapeHtml ? window.escapeHtml(fromText) : fromText}</span>`;
+        cells.fromEl.innerHTML = `${threatBadgeHtml}<span>${window.escapeHtml ? window.escapeHtml(fromText) : fromText}</span>`;
         cells.fromEl.title = fromText;
     }
 
@@ -474,12 +483,28 @@ function updateIncidentRowElement(div, item, index) {
     }
 
     const verdict = item.verdict || 'Pending';
-    const vLower = verdict.toLowerCase();
-    const verdictClass = vLower.includes('malicious') ? 'badge-malicious' : (vLower.includes('spam') ? 'badge-spam' : 'badge-safe');
+    const verdictLower = verdict.toLowerCase();
+    const verdictClass = verdictLower.includes('malicious') ? 'badge-malicious' : (verdictLower.includes('spam') ? 'badge-spam' : 'badge-safe');
 
     if (cells.badgeSpan.textContent !== verdict) cells.badgeSpan.textContent = verdict;
     const targetBadgeClass = `badge ${verdictClass}`;
     if (cells.badgeSpan.className !== targetBadgeClass) cells.badgeSpan.className = targetBadgeClass;
+
+    if (item.avScanned) {
+        cells.avBadgeSpan.style.display = 'inline-flex';
+        const isAvThreat = String(item.avVerdict || '').toLowerCase() === 'malicious';
+        if (isAvThreat) {
+            cells.avBadgeSpan.className = 'badge badge-av-threat';
+            cells.avBadgeSpan.textContent = '🛡️ AV Threat';
+            cells.avBadgeSpan.title = `Local AV: Threat Detected (${item.avThreatName || 'Malicious'})`;
+        } else {
+            cells.avBadgeSpan.className = 'badge badge-av-clean';
+            cells.avBadgeSpan.textContent = '🛡️ Clean';
+            cells.avBadgeSpan.title = 'Local AV: Scanned Clean (Microsoft Defender & ClamAV)';
+        }
+    } else {
+        cells.avBadgeSpan.style.display = 'none';
+    }
 
     if (item.userMoved) {
         cells.movedBadgeSpan.style.display = 'inline-flex';
@@ -821,8 +846,8 @@ window.handleListKeyNavigation = (e) => {
     // Action: Open in Outlook (Enter or O)
     if (e.key === 'Enter' || e.key === 'o' || e.key === 'O') {
         e.preventDefault();
-        if (typeof window.openItemInOutlook === 'function') {
-            window.openItemInOutlook(selectedItem.entryId, selectedItem.storeId, selectedItem.fingerprint, selectedItem.messageId);
+        if (typeof window.openIncidentInOutlook === 'function') {
+            window.openIncidentInOutlook(selectedItem);
         }
         return;
     }
@@ -830,7 +855,9 @@ window.handleListKeyNavigation = (e) => {
     // Action: Forensic Report (F)
     if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
-        if (typeof window.openForensics === 'function') {
+        if (typeof window.openForensicsTab === 'function') {
+            window.openForensicsTab(selectedItem);
+        } else if (typeof window.openForensics === 'function') {
             window.openForensics(selectedItem);
         }
         return;
@@ -840,7 +867,7 @@ window.handleListKeyNavigation = (e) => {
     if (e.key === 's' || e.key === 'S') {
         e.preventDefault();
         if (typeof window.scanEmailAv === 'function') {
-            window.scanEmailAv(selectedItem.entryId, selectedItem.fingerprint);
+            window.scanEmailAv(selectedItem);
         }
         return;
     }
@@ -849,7 +876,7 @@ window.handleListKeyNavigation = (e) => {
     if (e.key === 'q' || e.key === 'Q') {
         e.preventDefault();
         if (typeof window.quarantineIncident === 'function') {
-            window.quarantineIncident(selectedItem.entryId, selectedItem.fingerprint);
+            window.quarantineIncident(selectedItem.entryId || selectedItem.id, selectedItem.fingerprint, selectedItem.storeId);
         }
         return;
     }
@@ -858,8 +885,15 @@ window.handleListKeyNavigation = (e) => {
     if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
         if (typeof window.deleteIncident === 'function') {
-            window.deleteIncident(selectedItem.entryId, selectedItem.fingerprint);
+            window.deleteIncident(selectedItem.entryId || selectedItem.id);
         }
+        return;
+    }
+
+    // Help: ? or /
+    if (e.key === '?' || e.key === '/') {
+        e.preventDefault();
+        window.openKeyboardShortcutsHelp();
         return;
     }
 };
@@ -984,6 +1018,14 @@ window.releaseIncident = async (entryId, fingerprint, trustSenderAddress) => {
                 window.AppState.stats.safe.unshift(actionedItem);
             }
 
+            if (window.AppState.stats && Array.isArray(window.AppState.stats.all)) {
+                const allIdx = window.AppState.stats.all.findIndex(item => (item.entryId || item.id) === entryId || (fingerprint && item.fingerprint === fingerprint));
+                if (allIdx !== -1) {
+                    window.AppState.stats.all[allIdx].verdict = 'Safe';
+                    window.AppState.stats.all[allIdx].currentFolder = 'Inbox';
+                }
+            }
+
             if (actionedCat && actionedCat !== 'safe' && window.AppState.counts) {
                 if (window.AppState.counts[actionedCat] > 0) window.AppState.counts[actionedCat]--;
                 window.AppState.counts.safe = (window.AppState.counts.safe || 0) + 1;
@@ -1051,6 +1093,14 @@ window.quarantineIncident = async (entryId, fingerprint, storeId) => {
                 actionedItem.currentFolder = 'Junk Email';
                 window.AppState.stats.spam = window.AppState.stats.spam || [];
                 window.AppState.stats.spam.unshift(actionedItem);
+            }
+
+            if (window.AppState.stats && Array.isArray(window.AppState.stats.all)) {
+                const allIdx = window.AppState.stats.all.findIndex(item => (item.entryId || item.id) === entryId || (fingerprint && item.fingerprint === fingerprint));
+                if (allIdx !== -1) {
+                    window.AppState.stats.all[allIdx].verdict = 'Spam';
+                    window.AppState.stats.all[allIdx].currentFolder = 'Junk Email';
+                }
             }
 
             if (actionedCat && actionedCat !== 'spam' && window.AppState.counts) {
@@ -1151,7 +1201,12 @@ window.scanEmailAv = async (item, triggerBtn) => {
     const modal = document.getElementById('virustotal-modal');
     const titleEl = document.getElementById('virustotal-title');
     const bodyEl = document.getElementById('virustotal-body');
-    if (modal) modal.classList.add('active');
+    if (typeof window.openModal === 'function') {
+        window.openModal('virustotal-modal');
+    } else if (modal) {
+        modal.style.display = 'flex';
+        modal.classList.add('active');
+    }
     if (titleEl) titleEl.textContent = 'Multi-Engine Antivirus & Threat Audit (Defender & ClamAV)';
 
     if (bodyEl) {
@@ -1177,6 +1232,12 @@ window.scanEmailAv = async (item, triggerBtn) => {
     try {
         const res = await window.securityApi.scanAvLocal(entryId);
         if (res && res.success && res.report) {
+            item.avScanned = true;
+            item.avVerdict = res.report.overallVerdict;
+            item.avThreatName = (res.report.threats && res.report.threats.length > 0) ? res.report.threats[0] : '';
+            if (window.incidentVirtualList) {
+                window.incidentVirtualList.refreshCurrentSlice();
+            }
             window.renderAvScanReport(res.report, item);
         } else {
             if (bodyEl) {
@@ -1439,12 +1500,12 @@ window.deleteIncident = (id) => {
 
             // Remove from AppState.stats
             let deletedCat = null;
-            ['malicious', 'suspicious', 'spam', 'safe'].forEach(cat => {
+            ['malicious', 'suspicious', 'spam', 'safe', 'all'].forEach(cat => {
                 if (window.AppState.stats && window.AppState.stats[cat]) {
                     const idx = window.AppState.stats[cat].findIndex(item => (item.entryId || item.id) === id);
                     if (idx !== -1) {
                         window.AppState.stats[cat].splice(idx, 1);
-                        deletedCat = cat;
+                        if (cat !== 'all') deletedCat = cat;
                     }
                 }
             });
